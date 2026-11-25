@@ -31,7 +31,8 @@ class Script:
     def watch(self, state=None, **kwargs):
         kwargs.setdefault("interval", 60)
         kwargs.setdefault("settle", 20)
-        return watch(self.fetch, state or State(), Options(), sleep=self.sleep, clock=lambda: self.now, **kwargs)
+        options = kwargs.pop("options", Options())
+        return watch(self.fetch, state or State(), options, sleep=self.sleep, clock=lambda: self.now, **kwargs)
 
 
 def test_parse_target_forms():
@@ -58,6 +59,19 @@ def test_watch_returns_immediately_on_merge():
     script = Script(snapshot(state="MERGED"))
     assert script.watch()[2] == "MERGED"
     assert script.sleeps == []
+
+
+def test_watch_through_queue_waits_for_removal_or_merge():
+    queued = snapshot(in_queue=True)
+    assert Script(queued).watch()[2] == "QUEUED"
+
+    script = Script(queued, queued, snapshot(dequeue_reason="CI failed"))
+    snap, events, status = script.watch(options=Options(through_queue=True), settle=0)
+    assert status == ACTION_REQUIRED and events.dequeued
+    text = render_text(snap, events, status, {}, "pesterchum o/r 7")
+    assert "removed from the merge queue" in text and "GitHub's reason: CI failed." in text
+
+    assert Script(queued, snapshot(state="MERGED")).watch(options=Options(through_queue=True))[2] == "MERGED"
 
 
 def test_watch_times_out_and_once_reports_idle():

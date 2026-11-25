@@ -52,7 +52,7 @@ def status_context(context: str, state: str = "SUCCESS", required: bool = True, 
 
 
 def response(*, comments=(), reviews=(), threads=(), checks=(), state="OPEN", mergeable="MERGEABLE",
-             in_queue=False, head=HEAD, viewer="agent", remaining=5000) -> dict:
+             in_queue=False, head=HEAD, viewer="agent", remaining=5000, dequeue_reason=None) -> dict:
     return {
         "viewer": {"login": viewer},
         "rateLimit": {"remaining": remaining, "resetAt": "2026-01-01T01:00:00Z"},
@@ -61,6 +61,7 @@ def response(*, comments=(), reviews=(), threads=(), checks=(), state="OPEN", me
             "mergeable": mergeable, "isInMergeQueue": in_queue,
             "mergeQueueEntry": {"position": 2} if in_queue else None,
             "headRefOid": head, "baseRefName": "main",
+            "timelineItems": {"nodes": [{"reason": dequeue_reason}] if dequeue_reason else []},
             "comments": {"nodes": list(comments)},
             "reviews": {"nodes": list(reviews)},
             "reviewThreads": {"nodes": list(threads)},

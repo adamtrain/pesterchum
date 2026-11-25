@@ -17,6 +17,7 @@ unrelated to it, or to the real chat client of the same name.
 | A required check failed, and no required check is still running (or, with `--fail-fast`, as soon as it fails) | `ACTION_REQUIRED` |
 | The branch conflicts with its base | `ACTION_REQUIRED` |
 | The PR entered the merge queue | `QUEUED` |
+| The PR left the merge queue without merging | `ACTION_REQUIRED` |
 | The PR merged | `MERGED` |
 | The PR was closed without merging | `CLOSED` |
 
@@ -59,6 +60,10 @@ A failed check is reported once per attempt, and a merge conflict once per head 
 Pushing a fix or re-running the check makes it eligible to be reported again. Pass
 `--reset` to forget the cursor and report everything afresh.
 
+The cursor also remembers that the PR was in the merge queue. If it is later removed
+from the queue without merging, the next run reports that, with GitHub's reason, whether
+or not `--through-queue` was passed.
+
 ### Suggested agent instructions
 
 > After opening the PR, run `pesterchum OWNER/REPO NUMBER` in the background and wait
@@ -78,6 +83,7 @@ Pushing a fix or re-running the check makes it eligible to be reported again. Pa
 | `--ignore-author LOGIN` | Never wake on comments by this login. Repeatable. |
 | `--all-checks` | Watch every check, not only those required to merge. |
 | `--fail-fast` | Report a failed check as soon as it fails, instead of waiting for the other checks to finish. Checks that fail later are reported by the next run. |
+| `--through-queue` | Do not stop at `QUEUED`: keep watching while the PR is in the merge queue, until it merges or is removed from the queue. |
 | `--once` | Poll a single time and report (`IDLE` if there is nothing), instead of waiting. |
 | `--reset` | Forget what was already reported for this PR. |
 | `--json` | Print the report as JSON. |

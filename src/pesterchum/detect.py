@@ -19,6 +19,7 @@ class Options:
     wake_on_edits: bool = False
     all_checks: bool = False
     fail_fast: bool = False
+    through_queue: bool = False
 
 
 @dataclass
@@ -27,6 +28,7 @@ class Events:
     new_comments: list[Comment] = field(default_factory=list)
     edited_comments: list[Comment] = field(default_factory=list)
     conflict: bool = False
+    dequeued: bool = False  # left the merge queue without merging
     failed_checks: list[Check] = field(default_factory=list)
     # Counts over the checks being watched, for the report and progress lines.
     passed: int = 0
@@ -37,7 +39,7 @@ class Events:
 
     @property
     def needs_action(self) -> bool:
-        return bool(self.new_comments or self.edited_comments or self.conflict or self.failed_checks)
+        return bool(self.new_comments or self.edited_comments or self.conflict or self.dequeued or self.failed_checks)
 
     @property
     def wake(self) -> bool:
@@ -62,8 +64,10 @@ def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
         events.terminal = MERGED
     elif snapshot.state == "CLOSED":
         events.terminal = CLOSED
-    elif snapshot.in_merge_queue:
+    elif snapshot.in_merge_queue and not options.through_queue:
         events.terminal = QUEUED
+    elif not snapshot.in_merge_queue:
+        events.dequeued = state.queued
 
     for comment in snapshot.comments:
         if _ignored(comment, snapshot, options):
@@ -98,6 +102,7 @@ def mark_reported(snapshot: Snapshot, events: Events, state: State) -> None:
         state.seen[comment.id] = comment.edited_at or ""
     if events.conflict:
         state.conflict_head = snapshot.head_oid
+    state.queued = snapshot.in_merge_queue
     keys = {check.failure_key(snapshot.head_oid) for check in events.failed_checks}
     # Keys for older commits can never match again, so drop them.
     kept = [key for key in state.reported_failures if key.startswith(snapshot.head_oid + "|")]

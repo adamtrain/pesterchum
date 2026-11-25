@@ -26,6 +26,8 @@ class State:
     reported_failures: list[str] = field(default_factory=list)
     # head commit for which a merge conflict has already been reported
     conflict_head: str | None = None
+    # the PR was last seen in the merge queue, so leaving it without merging is news
+    queued: bool = False
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -40,6 +42,7 @@ class State:
             seen=dict(raw.get("seen", {})),
             reported_failures=list(raw.get("reported_failures", [])),
             conflict_head=raw.get("conflict_head"),
+            queued=bool(raw.get("queued", False)),
         )
 
     def save(self) -> None:
@@ -51,6 +54,7 @@ class State:
             "seen": self.seen,
             "reported_failures": self.reported_failures,
             "conflict_head": self.conflict_head,
+            "queued": self.queued,
         }
         # Write then rename, so a kill mid-write cannot leave a truncated cursor behind.
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name, suffix=".tmp")

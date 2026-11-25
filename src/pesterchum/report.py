@@ -18,7 +18,10 @@ DIFF_HUNK_LINES = 8
 HEADLINES = {
     MERGED: "The pull request has merged. Nothing further to watch.",
     CLOSED: "The pull request was closed without merging. Nothing further to watch.",
-    QUEUED: "The pull request is in the merge queue. Watching has stopped; it is no longer waiting on review.",
+    QUEUED: (
+        "The pull request is in the merge queue. Watching has stopped; it is no longer waiting on review. "
+        "Run again with --through-queue to wait until it merges or is removed from the queue."
+    ),
     TIMEOUT: "The --timeout elapsed with nothing to report. Run the same command again to keep watching.",
     IDLE: "Nothing to report right now.",
 }
@@ -45,6 +48,15 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
     else:
         out.append("Needs attention: " + ", ".join(_reasons(events)) + ".")
     out.append("")
+
+    if events.dequeued:
+        out.append("## Removed from the merge queue")
+        reason = f" GitHub's reason: {snapshot.dequeue_reason}." if snapshot.dequeue_reason else ""
+        out.append(
+            f"The pull request was in the merge queue and left it without merging.{reason} "
+            "It has to be queued again once whatever removed it is fixed."
+        )
+        out.append("")
 
     if events.conflict:
         out.append("## Merge conflict")
@@ -90,6 +102,8 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
 
 def _reasons(events: Events) -> list[str]:
     reasons = []
+    if events.dequeued:
+        reasons.append("removed from the merge queue")
     if events.conflict:
         reasons.append("merge conflict")
     if events.failed_checks:
@@ -164,6 +178,8 @@ def render_json(snapshot: Snapshot, events: Events, status: str, contexts: dict[
             "base_ref": snapshot.base_ref,
         },
         "merge_conflict": events.conflict,
+        "dequeued": events.dequeued,
+        "dequeue_reason": snapshot.dequeue_reason if events.dequeued else None,
         "failed_checks": [
             {**asdict(check), "context": contexts.get(check.failure_key(snapshot.head_oid), "")}
             for check in events.failed_checks

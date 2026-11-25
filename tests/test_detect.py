@@ -138,3 +138,22 @@ def test_terminal_states():
     assert run(snapshot(state="CLOSED")).terminal == CLOSED
     queued = run(snapshot(in_queue=True))
     assert queued.terminal == QUEUED and queued.wake and not queued.needs_action
+
+
+def test_through_queue_keeps_watching_and_reports_removal():
+    state = State()
+    queued = snapshot(in_queue=True)
+    assert not run(queued, state, through_queue=True).wake
+
+    # Without the flag QUEUED is reported, and the cursor remembers the PR was queued.
+    events = run(queued, state)
+    mark_reported(queued, events, state)
+    assert state.queued
+
+    removed = snapshot(dequeue_reason="CI failed")
+    events = run(removed, state, through_queue=True)
+    assert events.dequeued and events.needs_action and events.terminal is None
+    mark_reported(removed, events, state)
+    assert not run(removed, state).wake
+    assert run(snapshot(state="MERGED"), State(queued=True)).terminal == MERGED
+    assert not run(snapshot(state="MERGED"), State(queued=True)).dequeued

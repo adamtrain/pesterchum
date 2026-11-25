@@ -31,7 +31,7 @@ Block until a GitHub pull request needs attention, then print what happened and 
 
 Wakes on: a new comment or review, a failed required check (once every required check
 has finished, or at once with --fail-fast), a merge conflict, or the PR being merged, closed, or added to the merge
-queue. Otherwise it waits indefinitely, so run it in the background.
+queue (with --through-queue: removed from the queue instead). Otherwise it waits indefinitely, so run it in the background.
 
 The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
 ACTION_REQUIRED, MERGED, QUEUED, CLOSED, or TIMEOUT. The exit status is 0 for all of
@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fail-fast", action="store_true",
         help="report a failed check as soon as it fails, instead of waiting for the other checks to finish",
+    )
+    parser.add_argument(
+        "--through-queue", action="store_true",
+        help="keep watching while the PR is in the merge queue, until it merges or is removed from the queue",
     )
     parser.add_argument("--once", action="store_true", help="poll a single time and report, instead of waiting")
     parser.add_argument("--reset", action="store_true", help="forget what was already reported for this PR")
@@ -125,6 +129,11 @@ def watch(
 
         consecutive_errors = 0
         events = detect(snapshot, state, options)
+        if snapshot.in_merge_queue and not state.queued:
+            # Remembered straight away, so that a watcher started later still notices
+            # the PR being removed from the queue.
+            state.queued = True
+            state.save()
         latest = (snapshot, events)
 
         if events.terminal or once:
@@ -140,6 +149,8 @@ def watch(
         confirming = False
 
         summary = f"checks: {events.passed} passed, {events.failed} failed, {events.pending} running"
+        if snapshot.in_merge_queue:
+            summary = f"in the merge queue at position {snapshot.merge_queue_position}; {summary}"
         if summary != progress:
             progress = summary
             log(summary)
@@ -192,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         wake_on_edits=args.wake_on_edits,
         all_checks=args.all_checks,
         fail_fast=args.fail_fast,
+        through_queue=args.through_queue,
     )
 
     log(f"watching {repo}#{number} every {args.interval:.0f}s (cursor: {path})")

@@ -70,6 +70,8 @@ class Snapshot:
     head_oid: str
     base_ref: str
     viewer: str
+    # Why the PR last left the merge queue without merging, if it ever did.
+    dequeue_reason: str | None = None
     comments: list[Comment] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     rate_remaining: int | None = None

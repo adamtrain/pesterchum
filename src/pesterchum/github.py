@@ -16,6 +16,9 @@ query($owner: String!, $name: String!, $number: Int!, $checksCursor: String) {
       url title state isDraft mergeable isInMergeQueue
       mergeQueueEntry { position }
       headRefOid baseRefName
+      timelineItems(last: 1, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+        nodes { ... on RemovedFromMergeQueueEvent { reason } }
+      }
       comments(last: 100) {
         nodes {
           id url body createdAt lastEditedAt isMinimized
@@ -150,6 +153,7 @@ def parse_snapshot(data: dict, repo: str, number: int) -> Snapshot:
     pr = data["repository"]["pullRequest"]
     rate = data.get("rateLimit") or {}
     queue_entry = pr.get("mergeQueueEntry") or {}
+    removals = (pr.get("timelineItems") or {}).get("nodes") or []
     return Snapshot(
         repo=repo,
         number=number,
@@ -160,6 +164,7 @@ def parse_snapshot(data: dict, repo: str, number: int) -> Snapshot:
         mergeable=pr["mergeable"],
         in_merge_queue=bool(pr.get("isInMergeQueue")),
         merge_queue_position=queue_entry.get("position"),
+        dequeue_reason=(removals[-1] or {}).get("reason") if removals else None,
         head_oid=pr["headRefOid"],
         base_ref=pr["baseRefName"],
         viewer=data["viewer"]["login"],
