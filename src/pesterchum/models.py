@@ -72,6 +72,11 @@ class Snapshot:
     viewer: str
     # Why the PR last left the merge queue without merging, if it ever did.
     dequeue_reason: str | None = None
+    # The head commit: its subject line, and who wrote it (the login is None when
+    # GitHub cannot match the commit's email address to an account).
+    head_headline: str = ""
+    head_author_login: str | None = None
+    head_author_name: str | None = None
     # GitHub's own verdict on whether the PR can merge: CLEAN, BLOCKED, BEHIND, DIRTY, ...
     merge_state: str = "UNKNOWN"
     review_decision: str | None = None  # APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED

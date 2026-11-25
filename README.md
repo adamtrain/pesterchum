@@ -16,6 +16,7 @@ unrelated to it, or to the real chat client of the same name.
 | A new PR comment, review, or inline review comment | `ACTION_REQUIRED` |
 | A required check failed, and no required check is still running (or, with `--fail-fast`, as soon as it fails) | `ACTION_REQUIRED` |
 | The branch conflicts with its base | `ACTION_REQUIRED` |
+| Somebody else pushed to the branch | `ACTION_REQUIRED` |
 | The PR became ready to merge, with `--wake-on-ready` | `READY` |
 | The PR entered the merge queue | `QUEUED` |
 | The PR left the merge queue without merging | `ACTION_REQUIRED` |
@@ -78,6 +79,15 @@ or not `--through-queue` was passed.
 > for it to exit. If the first line is `PESTERCHUM: ACTION_REQUIRED`, address every
 > item in the output, push, and run the same command again. Stop when the first line
 > is `MERGED`, `QUEUED` or `CLOSED`.
+
+### Pushes by somebody else
+
+A reviewer committing a suggestion, or anyone pressing "Update branch", moves the head
+to a commit the agent does not have, and the agent's next force-push would discard it.
+So a new head commit wakes the watcher unless it is the agent's own. When the working
+directory is a checkout of the repository, "own" means the commit is already in it;
+otherwise it means the commit's author is the authenticated `gh` user. The agent's own
+pushes never wake it, and the head as first seen is taken as the starting point.
 
 ## Options
 

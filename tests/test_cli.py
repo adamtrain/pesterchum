@@ -1,5 +1,5 @@
 import pytest
-from helpers import check_run, issue_comment, snapshot
+from helpers import HEAD, check_run, issue_comment, snapshot
 
 from pesterchum import cli
 from pesterchum.ci import BUILDKITE_URL, trim_buildkite_log
@@ -88,6 +88,36 @@ def test_watch_reports_ready_after_settling():
     snap, events, status = Script(with_comment).watch(options=Options(wake_on_ready=True))
     assert status == ACTION_REQUIRED
     assert "Apart from that, the pull request is ready to merge." in render_text(snap, events, status, {}, "x")
+
+
+def test_watch_follows_own_pushes_and_reports_someone_elses():
+    first, mine, theirs = HEAD, "b" * 40, "c" * 40
+    script = Script(snapshot(head=first), snapshot(head=mine, head_author="agent"), snapshot(head=theirs, head_author="reviewer"))
+    state = State()
+    snap, events, status = script.watch(state, settle=0)
+    assert status == ACTION_REQUIRED and events.head_moved_from == mine
+    text = render_text(snap, events, status, {}, "x")
+    assert "somebody else pushed to the branch" in text
+    assert "moved from `bbbbbbbbbb` to `cccccccccc` (“Apply suggestion”, by reviewer)" in text
+
+
+def test_commit_is_local(tmp_path):
+    import subprocess
+
+    from pesterchum.local import commit_is_local
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    assert commit_is_local("o/r", HEAD, cwd=str(tmp_path)) is None  # not a git repository
+    git("init", "-q")
+    git("-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "one")
+    oid = git("rev-parse", "HEAD")
+    assert commit_is_local("o/r", oid, cwd=str(tmp_path)) is None  # no remote for that repository
+    git("remote", "add", "origin", "git@github.com:O/R.git")
+    assert commit_is_local("o/r", oid, cwd=str(tmp_path)) is True
+    assert commit_is_local("o/r", HEAD, cwd=str(tmp_path)) is False
+    assert commit_is_local("o/other", oid, cwd=str(tmp_path)) is None
 
 
 def test_watch_times_out_and_once_reports_idle():

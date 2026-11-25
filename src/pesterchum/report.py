@@ -71,6 +71,16 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
         )
         out.append("")
 
+    if events.head_moved_from:
+        author = snapshot.head_author_login or snapshot.head_author_name or "an unknown author"
+        out.append("## Branch head changed")
+        out.append(
+            f"The branch moved from `{events.head_moved_from[:10]}` to `{snapshot.head_oid[:10]}` "
+            f"(“{snapshot.head_headline}”, by {author}), which was not pushed from here. Fetch it and "
+            "bring it into the local branch before changing or pushing anything, or the next push may discard it."
+        )
+        out.append("")
+
     if events.conflict:
         out.append("## Merge conflict")
         out.append(
@@ -121,6 +131,8 @@ def _reasons(events: Events) -> list[str]:
     reasons = []
     if events.dequeued:
         reasons.append("removed from the merge queue")
+    if events.head_moved_from:
+        reasons.append("somebody else pushed to the branch")
     if events.conflict:
         reasons.append("merge conflict")
     if events.failed_checks:
@@ -194,9 +206,12 @@ def render_json(snapshot: Snapshot, events: Events, status: str, contexts: dict[
             "review_decision": snapshot.review_decision,
             "in_merge_queue": snapshot.in_merge_queue,
             "head_oid": snapshot.head_oid,
+            "head_headline": snapshot.head_headline,
+            "head_author": snapshot.head_author_login or snapshot.head_author_name,
             "base_ref": snapshot.base_ref,
         },
         "ready": events.ready,
+        "head_moved_from": events.head_moved_from,
         "merge_conflict": events.conflict,
         "dequeued": events.dequeued,
         "dequeue_reason": snapshot.dequeue_reason if events.dequeued else None,

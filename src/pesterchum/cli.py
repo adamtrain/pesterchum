@@ -15,6 +15,7 @@ from pesterchum import __version__
 from pesterchum.ci import failure_context
 from pesterchum.detect import Events, Options, detect, mark_reported
 from pesterchum.github import GhError, current_branch_pr, fetch_snapshot
+from pesterchum.local import commit_is_local
 from pesterchum.models import Snapshot
 from pesterchum.report import IDLE, TIMEOUT, render_json, render_text, status_of
 from pesterchum.state import State, default_state_dir, last_report_path, state_path, write_atomic
@@ -30,7 +31,8 @@ DESCRIPTION = """\
 Block until a GitHub pull request needs attention, then print what happened and exit.
 
 Wakes on: a new comment or review, a failed required check (once every required check
-has finished, or at once with --fail-fast), a merge conflict, or the PR being merged, closed, or added to the merge
+has finished, or at once with --fail-fast), a merge conflict, somebody else pushing to
+the branch, or the PR being merged, closed, or added to the merge
 queue (with --through-queue: removed from the queue instead). Otherwise it waits indefinitely, so run it in the background.
 
 The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
@@ -141,6 +143,9 @@ def watch(
 
         consecutive_errors = 0
         events = detect(snapshot, state, options)
+        if not events.head_moved_from:
+            # Either the first look at the PR or a commit of our own: the new baseline.
+            state.head = snapshot.head_oid
         if snapshot.in_merge_queue and not state.queued:
             # Remembered straight away, so that a watcher started later still notices
             # the PR being removed from the queue.
@@ -235,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         fail_fast=args.fail_fast,
         through_queue=args.through_queue,
         wake_on_ready=args.wake_on_ready,
+        commit_is_local=lambda oid: commit_is_local(repo, oid),
     )
 
     log(f"watching {repo}#{number} every {args.interval:.0f}s (cursor: {path})")

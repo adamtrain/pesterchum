@@ -181,3 +181,25 @@ def test_ready_wakes_once_per_head_commit_and_only_when_asked():
     unstable = snapshot(draft=False, merge_state="UNSTABLE", checks=[check_run("lint", conclusion="FAILURE", required=False)])
     assert run(unstable, wake_on_ready=True).ready
     assert not run(unstable, wake_on_ready=True, all_checks=True).ready
+
+
+def test_head_moved_by_someone_else_wakes_once():
+    other = "b" * 40
+    state = State(head=HEAD)
+    moved = snapshot(head=other, head_author="reviewer")
+
+    # In a checkout, what counts is whether the commit is there, whoever wrote it.
+    assert not run(moved, state, commit_is_local=lambda oid: True).wake
+    assert run(snapshot(head=other, head_author="agent"), state, commit_is_local=lambda oid: False).head_moved_from == HEAD
+    # With no checkout to ask, the commit's author decides, and an unknown author does not wake.
+    assert not run(snapshot(head=other, head_author="Agent"), state).wake
+    assert not run(snapshot(head=other), state).wake
+
+    events = run(moved, state)
+    assert events.head_moved_from == HEAD and events.needs_action
+    mark_reported(moved, events, state)
+    assert state.head == other and not run(moved, state).wake
+
+    # The first look at a PR has nothing to compare with, and a merged PR needs no warning.
+    assert not run(moved, State()).wake
+    assert not run(snapshot(head=other, head_author="reviewer", state="MERGED"), State(head=HEAD)).head_moved_from

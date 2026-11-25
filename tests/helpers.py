@@ -53,7 +53,7 @@ def status_context(context: str, state: str = "SUCCESS", required: bool = True, 
 
 def response(*, comments=(), reviews=(), threads=(), checks=(), state="OPEN", mergeable="MERGEABLE",
              in_queue=False, head=HEAD, viewer="agent", remaining=5000, dequeue_reason=None,
-             draft=True, merge_state="BLOCKED", review_decision=None) -> dict:
+             draft=True, merge_state="BLOCKED", review_decision=None, head_author=None) -> dict:
     return {
         "viewer": {"login": viewer},
         "rateLimit": {"remaining": remaining, "resetAt": "2026-01-01T01:00:00Z"},
@@ -66,7 +66,10 @@ def response(*, comments=(), reviews=(), threads=(), checks=(), state="OPEN", me
             "comments": {"nodes": list(comments)},
             "reviews": {"nodes": list(reviews)},
             "reviewThreads": {"nodes": list(threads)},
-            "commits": {"nodes": [{"commit": {"statusCheckRollup": {
+            "commits": {"nodes": [{"commit": {
+                "messageHeadline": "Apply suggestion",
+                "author": {"name": "Some Name", "user": {"login": head_author} if head_author else None},
+                "statusCheckRollup": {
                 "contexts": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": list(checks)},
             }}}]},
         }},

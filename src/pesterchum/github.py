@@ -45,6 +45,8 @@ query($owner: String!, $name: String!, $number: Int!, $checksCursor: String) {
       commits(last: 1) {
         nodes {
           commit {
+            messageHeadline
+            author { name user { login } }
             statusCheckRollup {
               contexts(first: 100, after: $checksCursor) {
                 pageInfo { hasNextPage endCursor }
@@ -169,6 +171,9 @@ def parse_snapshot(data: dict, repo: str, number: int) -> Snapshot:
     rate = data.get("rateLimit") or {}
     queue_entry = pr.get("mergeQueueEntry") or {}
     removals = (pr.get("timelineItems") or {}).get("nodes") or []
+    commits = pr["commits"]["nodes"]
+    head_commit = commits[0]["commit"] if commits else {}
+    head_author = head_commit.get("author") or {}
     return Snapshot(
         repo=repo,
         number=number,
@@ -184,6 +189,9 @@ def parse_snapshot(data: dict, repo: str, number: int) -> Snapshot:
         dequeue_reason=(removals[-1] or {}).get("reason") if removals else None,
         head_oid=pr["headRefOid"],
         base_ref=pr["baseRefName"],
+        head_headline=head_commit.get("messageHeadline") or "",
+        head_author_login=(head_author.get("user") or {}).get("login"),
+        head_author_name=head_author.get("name"),
         viewer=data["viewer"]["login"],
         comments=_parse_comments(pr),
         checks=_parse_checks(_contexts(pr)["nodes"]),

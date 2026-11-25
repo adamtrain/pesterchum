@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pesterchum.models import FAIL, PASS, PENDING, Check, Comment, Snapshot
@@ -25,6 +26,8 @@ class Options:
     fail_fast: bool = False
     through_queue: bool = False
     wake_on_ready: bool = False
+    # Whether a commit is in the local checkout; None when there is no checkout to ask.
+    commit_is_local: Callable[[str], bool | None] = lambda oid: None
 
 
 @dataclass
@@ -34,6 +37,8 @@ class Events:
     edited_comments: list[Comment] = field(default_factory=list)
     conflict: bool = False
     dequeued: bool = False  # left the merge queue without merging
+    # The previous head, when the branch has moved to a commit that somebody else pushed.
+    head_moved_from: str | None = None
     failed_checks: list[Check] = field(default_factory=list)
     ready: bool = False  # became ready to merge, and the caller asked to hear about it
     # Counts over the checks being watched, for the report and progress lines.
@@ -45,7 +50,10 @@ class Events:
 
     @property
     def needs_action(self) -> bool:
-        return bool(self.new_comments or self.edited_comments or self.conflict or self.dequeued or self.failed_checks)
+        return bool(
+            self.new_comments or self.edited_comments or self.conflict or self.dequeued
+            or self.head_moved_from or self.failed_checks
+        )
 
     @property
     def wake(self) -> bool:
@@ -61,6 +69,15 @@ def _ignored(comment: Comment, snapshot: Snapshot, options: Options) -> bool:
     if not options.include_self and login == snapshot.viewer.lower():
         return True
     return login in options.ignore_authors
+
+
+def _pushed_by_someone_else(snapshot: Snapshot, options: Options) -> bool:
+    local = options.commit_is_local(snapshot.head_oid)
+    if local is not None:
+        return not local
+    # Without a checkout to look in, fall back on who wrote the commit.
+    author = snapshot.head_author_login
+    return author is not None and author.lower() != snapshot.viewer.lower()
 
 
 def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
@@ -82,6 +99,10 @@ def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
             events.new_comments.append(comment)
         elif options.wake_on_edits and state.seen[comment.id] != (comment.edited_at or ""):
             events.edited_comments.append(comment)
+
+    if snapshot.state == "OPEN" and state.head and state.head != snapshot.head_oid:
+        if _pushed_by_someone_else(snapshot, options):
+            events.head_moved_from = state.head
 
     # Reported once per head commit: pushing a new commit that still conflicts reports again.
     events.conflict = snapshot.mergeable == "CONFLICTING" and state.conflict_head != snapshot.head_oid
@@ -121,6 +142,7 @@ def mark_reported(snapshot: Snapshot, events: Events, state: State) -> None:
     if events.conflict:
         state.conflict_head = snapshot.head_oid
     state.queued = snapshot.in_merge_queue
+    state.head = snapshot.head_oid
     if events.ready:
         state.ready_head = snapshot.head_oid
     keys = {check.failure_key(snapshot.head_oid) for check in events.failed_checks}
