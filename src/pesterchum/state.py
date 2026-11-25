@@ -42,6 +42,8 @@ class State:
     conflict_head: str | None = None
     # the PR was last seen in the merge queue, so leaving it without merging is news
     queued: bool = False
+    # head commit for which the PR has already been reported as ready to merge
+    ready_head: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -57,6 +59,7 @@ class State:
             reported_failures=list(raw.get("reported_failures", [])),
             conflict_head=raw.get("conflict_head"),
             queued=bool(raw.get("queued", False)),
+            ready_head=raw.get("ready_head"),
         )
 
     def save(self) -> None:
@@ -68,5 +71,6 @@ class State:
             "reported_failures": self.reported_failures,
             "conflict_head": self.conflict_head,
             "queued": self.queued,
+            "ready_head": self.ready_head,
         }
         write_atomic(self.path, json.dumps(payload, indent=2))

@@ -16,7 +16,7 @@ from pesterchum.ci import failure_context
 from pesterchum.detect import Events, Options, detect, mark_reported
 from pesterchum.github import GhError, fetch_snapshot
 from pesterchum.models import Snapshot
-from pesterchum.report import ACTION_REQUIRED, IDLE, TIMEOUT, render_json, render_text, status_of
+from pesterchum.report import IDLE, TIMEOUT, render_json, render_text, status_of
 from pesterchum.state import State, default_state_dir, last_report_path, state_path, write_atomic
 
 PR_URL = re.compile(r"^https?://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
@@ -34,7 +34,8 @@ has finished, or at once with --fail-fast), a merge conflict, or the PR being me
 queue (with --through-queue: removed from the queue instead). Otherwise it waits indefinitely, so run it in the background.
 
 The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
-ACTION_REQUIRED, MERGED, QUEUED, CLOSED, or TIMEOUT. The exit status is 0 for all of
+ACTION_REQUIRED, READY (only with --wake-on-ready), MERGED, QUEUED, CLOSED, or TIMEOUT.
+The exit status is 0 for all of
 these and 1 for errors.
 
 A cursor is kept per PR under ~/.cache/pesterchum, so running the same command again
@@ -79,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--through-queue", action="store_true",
         help="keep watching while the PR is in the merge queue, until it merges or is removed from the queue",
+    )
+    parser.add_argument(
+        "--wake-on-ready", action="store_true",
+        help="also wake, with status READY, when the PR becomes ready to merge",
     )
     parser.add_argument("--once", action="store_true", help="poll a single time and report, instead of waiting")
     parser.add_argument(
@@ -143,9 +148,9 @@ def watch(
         if events.terminal or once:
             return snapshot, events, status_of(events)
 
-        if events.needs_action:
+        if events.needs_action or events.ready:
             if confirming or settle <= 0:
-                return snapshot, events, ACTION_REQUIRED
+                return snapshot, events, status_of(events)
             confirming = True
             log(f"something changed; checking again in {settle:.0f}s before reporting")
             sleep(settle)
@@ -223,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         all_checks=args.all_checks,
         fail_fast=args.fail_fast,
         through_queue=args.through_queue,
+        wake_on_ready=args.wake_on_ready,
     )
 
     log(f"watching {repo}#{number} every {args.interval:.0f}s (cursor: {path})")

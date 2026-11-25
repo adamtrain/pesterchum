@@ -16,13 +16,15 @@ unrelated to it, or to the real chat client of the same name.
 | A new PR comment, review, or inline review comment | `ACTION_REQUIRED` |
 | A required check failed, and no required check is still running (or, with `--fail-fast`, as soon as it fails) | `ACTION_REQUIRED` |
 | The branch conflicts with its base | `ACTION_REQUIRED` |
+| The PR became ready to merge, with `--wake-on-ready` | `READY` |
 | The PR entered the merge queue | `QUEUED` |
 | The PR left the merge queue without merging | `ACTION_REQUIRED` |
 | The PR merged | `MERGED` |
 | The PR was closed without merging | `CLOSED` |
 
 Nothing else ends the wait. Passing checks, approvals with no text, and comments by the
-authenticated `gh` user (the agent itself) are ignored.
+authenticated `gh` user (the agent itself) are ignored, unless `--wake-on-ready` is
+passed and they are what makes the PR mergeable.
 
 ## Install
 
@@ -87,6 +89,7 @@ or not `--through-queue` was passed.
 | `--ignore-author LOGIN` | Never wake on comments by this login. Repeatable. |
 | `--all-checks` | Watch every check, not only those required to merge. |
 | `--fail-fast` | Report a failed check as soon as it fails, instead of waiting for the other checks to finish. Checks that fail later are reported by the next run. |
+| `--wake-on-ready` | Also wake, with status `READY`, when GitHub says the PR can merge (reviews and branch rules satisfied, no conflict, not a draft) and no watched check is failing or running. Reported once per head commit. |
 | `--through-queue` | Do not stop at `QUEUED`: keep watching while the PR is in the merge queue, until it merges or is removed from the queue. |
 | `--once` | Poll a single time and report (`IDLE` if there is nothing), instead of waiting. |
 | `--last` | Print the most recent report for this PR again, without polling, and exit. Add `--json` for the JSON form. |

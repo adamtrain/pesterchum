@@ -13,7 +13,7 @@ query($owner: String!, $name: String!, $number: Int!, $checksCursor: String) {
   rateLimit { remaining resetAt }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      url title state isDraft mergeable isInMergeQueue
+      url title state isDraft mergeable mergeStateStatus reviewDecision isInMergeQueue
       mergeQueueEntry { position }
       headRefOid baseRefName
       timelineItems(last: 1, itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT]) {
@@ -162,6 +162,8 @@ def parse_snapshot(data: dict, repo: str, number: int) -> Snapshot:
         state=pr["state"],
         is_draft=pr["isDraft"],
         mergeable=pr["mergeable"],
+        merge_state=pr.get("mergeStateStatus") or "UNKNOWN",
+        review_decision=pr.get("reviewDecision"),
         in_merge_queue=bool(pr.get("isInMergeQueue")),
         merge_queue_position=queue_entry.get("position"),
         dequeue_reason=(removals[-1] or {}).get("reason") if removals else None,

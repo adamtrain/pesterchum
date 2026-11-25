@@ -52,13 +52,14 @@ def status_context(context: str, state: str = "SUCCESS", required: bool = True, 
 
 
 def response(*, comments=(), reviews=(), threads=(), checks=(), state="OPEN", mergeable="MERGEABLE",
-             in_queue=False, head=HEAD, viewer="agent", remaining=5000, dequeue_reason=None) -> dict:
+             in_queue=False, head=HEAD, viewer="agent", remaining=5000, dequeue_reason=None,
+             draft=True, merge_state="BLOCKED", review_decision=None) -> dict:
     return {
         "viewer": {"login": viewer},
         "rateLimit": {"remaining": remaining, "resetAt": "2026-01-01T01:00:00Z"},
         "repository": {"pullRequest": {
-            "url": "https://github.com/o/r/pull/7", "title": "A change", "state": state, "isDraft": True,
-            "mergeable": mergeable, "isInMergeQueue": in_queue,
+            "url": "https://github.com/o/r/pull/7", "title": "A change", "state": state, "isDraft": draft,
+            "mergeable": mergeable, "mergeStateStatus": merge_state, "reviewDecision": review_decision, "isInMergeQueue": in_queue,
             "mergeQueueEntry": {"position": 2} if in_queue else None,
             "headRefOid": head, "baseRefName": "main",
             "timelineItems": {"nodes": [{"reason": dequeue_reason}] if dequeue_reason else []},

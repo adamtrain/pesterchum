@@ -72,6 +72,9 @@ class Snapshot:
     viewer: str
     # Why the PR last left the merge queue without merging, if it ever did.
     dequeue_reason: str | None = None
+    # GitHub's own verdict on whether the PR can merge: CLEAN, BLOCKED, BEHIND, DIRTY, ...
+    merge_state: str = "UNKNOWN"
+    review_decision: str | None = None  # APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED
     comments: list[Comment] = field(default_factory=list)
     checks: list[Check] = field(default_factory=list)
     rate_remaining: int | None = None

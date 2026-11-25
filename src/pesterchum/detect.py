@@ -11,6 +11,10 @@ MERGED = "MERGED"
 CLOSED = "CLOSED"
 QUEUED = "QUEUED"
 
+# Values of GitHub's mergeStateStatus that mean nothing stands in the way of merging.
+# UNSTABLE is mergeable with a check outside the required set failing or still running.
+MERGEABLE_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
+
 
 @dataclass
 class Options:
@@ -20,6 +24,7 @@ class Options:
     all_checks: bool = False
     fail_fast: bool = False
     through_queue: bool = False
+    wake_on_ready: bool = False
 
 
 @dataclass
@@ -30,6 +35,7 @@ class Events:
     conflict: bool = False
     dequeued: bool = False  # left the merge queue without merging
     failed_checks: list[Check] = field(default_factory=list)
+    ready: bool = False  # became ready to merge, and the caller asked to hear about it
     # Counts over the checks being watched, for the report and progress lines.
     passed: int = 0
     failed: int = 0
@@ -43,7 +49,7 @@ class Events:
 
     @property
     def wake(self) -> bool:
-        return self.terminal is not None or self.needs_action
+        return self.terminal is not None or self.needs_action or self.ready
 
 
 def watched_checks(snapshot: Snapshot, options: Options) -> list[Check]:
@@ -93,6 +99,18 @@ def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
             if check.state == FAIL and check.failure_key(snapshot.head_oid) not in state.reported_failures
         ]
 
+    # GitHub decides whether reviews and branch rules are satisfied; the watched checks are
+    # looked at as well, so that --all-checks also holds readiness back.
+    events.ready = (
+        options.wake_on_ready
+        and events.terminal is None
+        and not snapshot.is_draft
+        and snapshot.merge_state in MERGEABLE_STATES
+        and events.failed == 0
+        and events.pending == 0
+        and state.ready_head != snapshot.head_oid
+    )
+
     return events
 
 
@@ -103,6 +121,8 @@ def mark_reported(snapshot: Snapshot, events: Events, state: State) -> None:
     if events.conflict:
         state.conflict_head = snapshot.head_oid
     state.queued = snapshot.in_merge_queue
+    if events.ready:
+        state.ready_head = snapshot.head_oid
     keys = {check.failure_key(snapshot.head_oid) for check in events.failed_checks}
     # Keys for older commits can never match again, so drop them.
     kept = [key for key in state.reported_failures if key.startswith(snapshot.head_oid + "|")]

@@ -74,6 +74,22 @@ def test_watch_through_queue_waits_for_removal_or_merge():
     assert Script(queued, snapshot(state="MERGED")).watch(options=Options(through_queue=True))[2] == "MERGED"
 
 
+def test_watch_reports_ready_after_settling():
+    blocked = snapshot(draft=False)
+    clean = snapshot(draft=False, merge_state="CLEAN", review_decision="APPROVED")
+    script = Script(blocked, clean)
+    snap, events, status = script.watch(options=Options(wake_on_ready=True))
+    assert status == "READY" and script.sleeps == [60, 20]
+    text = render_text(snap, events, status, {}, "pesterchum o/r 7")
+    assert text.startswith("PESTERCHUM: READY\n") and "review approved" in text
+    assert "run `pesterchum o/r 7` again to keep watching until it merges" in text.lower()
+
+    with_comment = snapshot(draft=False, merge_state="CLEAN", comments=[issue_comment("c1")])
+    snap, events, status = Script(with_comment).watch(options=Options(wake_on_ready=True))
+    assert status == ACTION_REQUIRED
+    assert "Apart from that, the pull request is ready to merge." in render_text(snap, events, status, {}, "x")
+
+
 def test_watch_times_out_and_once_reports_idle():
     script = Script(snapshot())
     assert script.watch(timeout=150)[2] == TIMEOUT

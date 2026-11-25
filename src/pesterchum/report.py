@@ -9,6 +9,7 @@ from pesterchum.detect import CLOSED, MERGED, QUEUED, Events
 from pesterchum.models import Check, Comment, Snapshot
 
 ACTION_REQUIRED = "ACTION_REQUIRED"
+READY = "READY"
 TIMEOUT = "TIMEOUT"
 IDLE = "IDLE"
 
@@ -22,13 +23,21 @@ HEADLINES = {
         "The pull request is in the merge queue. Watching has stopped; it is no longer waiting on review. "
         "Run again with --through-queue to wait until it merges or is removed from the queue."
     ),
+    READY: (
+        "The pull request is ready to merge: the required checks have passed, the required reviews "
+        "are in, and it does not conflict with its base. It has not been merged."
+    ),
     TIMEOUT: "The --timeout elapsed with nothing to report. Run the same command again to keep watching.",
     IDLE: "Nothing to report right now.",
 }
 
 
 def status_of(events: Events) -> str:
-    return events.terminal or (ACTION_REQUIRED if events.needs_action else IDLE)
+    if events.terminal:
+        return events.terminal
+    if events.needs_action:
+        return ACTION_REQUIRED
+    return READY if events.ready else IDLE
 
 
 def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[str, str], rerun: str) -> str:
@@ -38,6 +47,8 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
     flags = [f"head {snapshot.head_oid[:10]}", f"base {snapshot.base_ref}"]
     if snapshot.is_draft:
         flags.append("draft")
+    if snapshot.review_decision:
+        flags.append("review " + snapshot.review_decision.lower().replace("_", " "))
     if snapshot.in_merge_queue and snapshot.merge_queue_position is not None:
         flags.append(f"merge queue position {snapshot.merge_queue_position}")
     out.append(" · ".join(flags))
@@ -47,6 +58,8 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
         out.append(HEADLINES[status])
     else:
         out.append("Needs attention: " + ", ".join(_reasons(events)) + ".")
+        if events.ready:
+            out.append("Apart from that, the pull request is ready to merge.")
     out.append("")
 
     if events.dequeued:
@@ -95,6 +108,10 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
     if status == ACTION_REQUIRED:
         out.append("## Next")
         out.append(f"After dealing with the above, run `{rerun}` again to keep watching.")
+        out.append("")
+    elif status == READY:
+        out.append("## Next")
+        out.append(f"Run `{rerun}` again to keep watching until it merges.")
         out.append("")
 
     return "\n".join(out).rstrip() + "\n"
@@ -173,10 +190,13 @@ def render_json(snapshot: Snapshot, events: Events, status: str, contexts: dict[
             "state": snapshot.state,
             "is_draft": snapshot.is_draft,
             "mergeable": snapshot.mergeable,
+            "merge_state": snapshot.merge_state,
+            "review_decision": snapshot.review_decision,
             "in_merge_queue": snapshot.in_merge_queue,
             "head_oid": snapshot.head_oid,
             "base_ref": snapshot.base_ref,
         },
+        "ready": events.ready,
         "merge_conflict": events.conflict,
         "dequeued": events.dequeued,
         "dequeue_reason": snapshot.dequeue_reason if events.dequeued else None,

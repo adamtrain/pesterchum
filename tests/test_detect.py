@@ -157,3 +157,27 @@ def test_through_queue_keeps_watching_and_reports_removal():
     assert not run(removed, state).wake
     assert run(snapshot(state="MERGED"), State(queued=True)).terminal == MERGED
     assert not run(snapshot(state="MERGED"), State(queued=True)).dequeued
+
+
+def test_ready_wakes_once_per_head_commit_and_only_when_asked():
+    state = State()
+    passing = [check_run("unit")]
+    clean = snapshot(draft=False, merge_state="CLEAN", review_decision="APPROVED", checks=passing)
+    assert not run(clean, state).wake
+    events = run(clean, state, wake_on_ready=True)
+    assert events.ready and events.wake and not events.needs_action
+    mark_reported(clean, events, state)
+    assert not run(clean, state, wake_on_ready=True).wake
+    assert run(snapshot(draft=False, merge_state="CLEAN", head="b" * 40), state, wake_on_ready=True).ready
+
+    for not_ready in (
+        snapshot(draft=False, merge_state="BLOCKED", checks=passing),
+        snapshot(draft=True, merge_state="CLEAN", checks=passing),
+        snapshot(draft=False, merge_state="CLEAN", checks=[check_run("unit", status="IN_PROGRESS", conclusion=None)]),
+        snapshot(draft=False, merge_state="CLEAN", state="MERGED"),
+    ):
+        assert not run(not_ready, wake_on_ready=True).ready
+    # A check outside the required set holds readiness back only with --all-checks.
+    unstable = snapshot(draft=False, merge_state="UNSTABLE", checks=[check_run("lint", conclusion="FAILURE", required=False)])
+    assert run(unstable, wake_on_ready=True).ready
+    assert not run(unstable, wake_on_ready=True, all_checks=True).ready
