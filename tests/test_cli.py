@@ -228,7 +228,7 @@ def test_main_exits_1_on_gh_error(tmp_path, monkeypatch, capsys):
 
 
 def test_render_inline_comment_shows_hunk_or_reply_context():
-    from helpers import thread
+    from helpers import review, thread
 
     from pesterchum.detect import detect
 
@@ -238,6 +238,13 @@ def test_render_inline_comment_shows_hunk_or_reply_context():
     assert "Inline comment by reviewer on src/a.py:3" in text
     assert "```diff\n@@ -1 +1 @@\n+new line\n```" in text
     assert "In reply to reviewer: “why?”" in text
+    assert text.count("comment id 9002 · thread id PRRT_src/a.py") == 2
+    assert "## Replying to inline comments" in text and "resolveReviewThread" in text
+
+    plain = snapshot(comments=[issue_comment("c1")], reviews=[review("r1", body="looks fine")])
+    text = render_text(plain, detect(plain, State(), Options()), ACTION_REQUIRED, {}, "pesterchum o/r 7")
+    assert "\ncomment id 9002\n" in text and "\nreview id 7002\n" in text
+    assert "Replying to inline comments" not in text
 
 
 def test_buildkite_url_and_log_trimming():

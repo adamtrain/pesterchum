@@ -11,7 +11,7 @@ PENDING = "pending"
 
 @dataclass
 class Comment:
-    id: str
+    id: str  # GraphQL node id
     kind: str  # "issue" (PR conversation), "review" (review summary) or "inline" (on a diff line)
     login: str  # raw login, without any [bot] suffix
     is_bot: bool
@@ -19,6 +19,8 @@ class Comment:
     url: str
     created_at: str
     edited_at: str | None = None
+    database_id: int | None = None  # the id the REST API uses for this comment or review
+    thread_id: str | None = None  # node id of the review thread an inline comment belongs to
     review_state: str | None = None  # APPROVED / CHANGES_REQUESTED / COMMENTED / DISMISSED
     path: str | None = None
     line: int | None = None

@@ -32,6 +32,14 @@ HEADLINES = {
 }
 
 
+THREAD_COMMANDS = """\
+Reply in a thread, or resolve it, with the thread id shown on the comment:
+```bash
+gh api graphql -f t=THREAD_ID -f b='the reply' -f query='mutation($t: ID!, $b: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $t, body: $b}) { comment { url } } }'
+gh api graphql -f t=THREAD_ID -f query='mutation($t: ID!) { resolveReviewThread(input: {threadId: $t}) { thread { isResolved } } }'
+```"""
+
+
 def status_of(events: Events) -> str:
     if events.terminal:
         return events.terminal
@@ -107,6 +115,9 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
         for comment in events.edited_comments:
             out.extend(_render_comment(comment))
 
+    if any(comment.thread_id for comment in events.new_comments + events.edited_comments):
+        out.extend(["## Replying to inline comments", THREAD_COMMANDS, ""])
+
     if events.passed or events.failed or events.pending:
         out.append("## Check status")
         out.append(f"{events.passed} passed, {events.failed} failed, {events.pending} still running.")
@@ -176,7 +187,10 @@ def _render_comment(comment: Comment) -> list[str]:
     else:
         title = f"Comment by {comment.author}"
 
-    out = [f"### {title}", f"{comment.created_at} · {comment.url}", ""]
+    ids = [f"{'review' if comment.kind == 'review' else 'comment'} id {comment.database_id or comment.id}"]
+    if comment.thread_id:
+        ids.append(f"thread id {comment.thread_id}")
+    out = [f"### {title}", f"{comment.created_at} · {comment.url}", " · ".join(ids), ""]
     if comment.kind == "inline":
         if comment.reply_to_login:
             out.append(f"In reply to {comment.reply_to_login}: “{comment.reply_to_excerpt}”")

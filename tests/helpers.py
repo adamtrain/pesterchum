@@ -14,21 +14,21 @@ def author(login: str, bot: bool = False) -> dict:
 
 def issue_comment(id: str, login: str = "reviewer", body: str = "hello", bot: bool = False, edited: str | None = None) -> dict:
     return {
-        "id": id, "url": f"https://example.test/{id}", "body": body, "createdAt": f"2026-01-01T00:00:{len(id):02d}Z",
+        "id": id, "databaseId": 9000 + len(id), "url": f"https://example.test/{id}", "body": body, "createdAt": f"2026-01-01T00:00:{len(id):02d}Z",
         "lastEditedAt": edited, "isMinimized": False, "author": author(login, bot),
     }
 
 
 def review(id: str, state: str = "COMMENTED", body: str = "", login: str = "reviewer") -> dict:
     return {
-        "id": id, "url": f"https://example.test/{id}", "body": body, "state": state,
+        "id": id, "databaseId": 7000 + len(id), "url": f"https://example.test/{id}", "body": body, "state": state,
         "submittedAt": "2026-01-01T00:01:00Z", "lastEditedAt": None, "author": author(login),
     }
 
 
 def thread(path: str, line: int, comments: list[dict], resolved: bool = False) -> dict:
     return {
-        "isResolved": resolved, "isOutdated": False, "path": path, "line": line, "originalLine": line,
+        "id": f"PRRT_{path}", "isResolved": resolved, "isOutdated": False, "path": path, "line": line, "originalLine": line,
         "comments": {"nodes": [{**c, "diffHunk": "@@ -1 +1 @@\n+new line"} for c in comments]},
     }
 

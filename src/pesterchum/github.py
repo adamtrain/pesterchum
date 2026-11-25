@@ -21,22 +21,22 @@ query($owner: String!, $name: String!, $number: Int!, $checksCursor: String) {
       }
       comments(last: 100) {
         nodes {
-          id url body createdAt lastEditedAt isMinimized
+          id databaseId url body createdAt lastEditedAt isMinimized
           author { login __typename }
         }
       }
       reviews(last: 100) {
         nodes {
-          id url body state submittedAt lastEditedAt
+          id databaseId url body state submittedAt lastEditedAt
           author { login __typename }
         }
       }
       reviewThreads(last: 100) {
         nodes {
-          isResolved isOutdated path line originalLine
+          id isResolved isOutdated path line originalLine
           comments(last: 50) {
             nodes {
-              id url body createdAt lastEditedAt isMinimized diffHunk
+              id databaseId url body createdAt lastEditedAt isMinimized diffHunk
               author { login __typename }
             }
           }
@@ -215,6 +215,7 @@ def _parse_comments(pr: dict) -> list[Comment]:
         comments.append(Comment(
             id=node["id"], kind="issue", login=login, is_bot=is_bot, body=node["body"] or "",
             url=node["url"], created_at=node["createdAt"], edited_at=node.get("lastEditedAt"),
+            database_id=node.get("databaseId"),
         ))
 
     for node in pr["reviews"]["nodes"]:
@@ -227,7 +228,7 @@ def _parse_comments(pr: dict) -> list[Comment]:
         comments.append(Comment(
             id=node["id"], kind="review", login=login, is_bot=is_bot, body=body, url=node["url"],
             created_at=node.get("submittedAt") or "", edited_at=node.get("lastEditedAt"),
-            review_state=node["state"],
+            review_state=node["state"], database_id=node.get("databaseId"),
         ))
 
     for thread in pr["reviewThreads"]["nodes"]:
@@ -239,6 +240,7 @@ def _parse_comments(pr: dict) -> list[Comment]:
                 url=node["url"], created_at=node["createdAt"], edited_at=node.get("lastEditedAt"),
                 path=thread.get("path"), line=thread.get("line") or thread.get("originalLine"),
                 diff_hunk=node.get("diffHunk"),
+                database_id=node.get("databaseId"), thread_id=thread.get("id"),
                 thread_resolved=bool(thread.get("isResolved")),
                 thread_outdated=bool(thread.get("isOutdated")),
             )
