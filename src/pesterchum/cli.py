@@ -17,7 +17,7 @@ from pesterchum.detect import Events, Options, detect, mark_reported
 from pesterchum.github import GhError, fetch_snapshot
 from pesterchum.models import Snapshot
 from pesterchum.report import ACTION_REQUIRED, IDLE, TIMEOUT, render_json, render_text, status_of
-from pesterchum.state import State, default_state_dir, state_path
+from pesterchum.state import State, default_state_dir, last_report_path, state_path, write_atomic
 
 PR_URL = re.compile(r"^https?://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
 REPO_AND_NUMBER = re.compile(r"^([^/\s#]+/[^/\s#]+)#(\d+)$")
@@ -39,7 +39,7 @@ these and 1 for errors.
 
 A cursor is kept per PR under ~/.cache/pesterchum, so running the same command again
 reports only what is new since the last report, including anything that arrived while
-you were not watching.
+you were not watching. If a report was lost, --last prints the most recent one again.
 """
 
 
@@ -81,6 +81,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="keep watching while the PR is in the merge queue, until it merges or is removed from the queue",
     )
     parser.add_argument("--once", action="store_true", help="poll a single time and report, instead of waiting")
+    parser.add_argument(
+        "--last", action="store_true",
+        help="print the most recent report for this PR again, without polling, and exit",
+    )
     parser.add_argument("--reset", action="store_true", help="forget what was already reported for this PR")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     parser.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
@@ -175,6 +179,18 @@ def _next_delay(snapshot: Snapshot, interval: float, log: Callable[[str], None])
     return wait
 
 
+def _replay(report: Path, pr: str, log: Callable[[str], None]) -> int:
+    try:
+        text = report.read_text()
+        saved = datetime.fromtimestamp(report.stat().st_mtime).astimezone()
+    except FileNotFoundError:
+        print(f"pesterchum: error: no report has been saved for {pr} yet", file=sys.stderr)
+        return 1
+    log(f"replaying the report for {pr} saved at {saved:%Y-%m-%d %H:%M:%S %Z}")
+    sys.stdout.write(text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
@@ -189,8 +205,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"pesterchum: {message}", file=sys.stderr, flush=True)
 
     path = state_path(Path(args.state_dir) if args.state_dir else default_state_dir(), repo, number)
+    if args.last:
+        return _replay(last_report_path(path, args.json), f"{repo}#{number}", log)
     if args.reset:
-        path.unlink(missing_ok=True)
+        for stale in (path, last_report_path(path, True), last_report_path(path, False)):
+            stale.unlink(missing_ok=True)
     try:
         state = State.load(path)
     except ValueError as error:
@@ -223,16 +242,17 @@ def main(argv: list[str] | None = None) -> int:
         log(f"fetching failure details for {check.label}")
         contexts[check.failure_key(snapshot.head_oid)] = failure_context(check, repo, args.log_tokens, args.log_lines)
 
-    if args.json:
-        output = render_json(snapshot, events, status, contexts)
-    else:
-        rerun = "pesterchum " + shlex.join(arg for arg in argv if arg not in ("--reset", "--once"))
-        output = render_text(snapshot, events, status, contexts, rerun)
-    sys.stdout.write(output)
+    rerun = "pesterchum " + shlex.join(arg for arg in argv if arg not in ("--reset", "--once"))
+    as_text = render_text(snapshot, events, status, contexts, rerun)
+    as_json = render_json(snapshot, events, status, contexts)
+    sys.stdout.write(as_json if args.json else as_text)
     sys.stdout.flush()
 
     # Advance the cursor only once the report is out, so a crash never swallows an event.
+    # The report is kept as well, because the cursor will not offer these events again.
     if status not in (TIMEOUT, IDLE):
+        write_atomic(last_report_path(path, False), as_text)
+        write_atomic(last_report_path(path, True), as_json)
         mark_reported(snapshot, events, state)
         state.save()
     return 0

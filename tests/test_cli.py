@@ -140,8 +140,20 @@ def test_main_reports_then_stays_quiet_on_rerun(tmp_path, monkeypatch, capsys):
     assert cli.main(argv) == 0
     assert capsys.readouterr().out.startswith("PESTERCHUM: IDLE\n")
 
+    # The IDLE run above did not replace the saved report.
+    assert cli.main([*argv, "--last"]) == 0
+    assert capsys.readouterr().out == out
+    assert cli.main([*argv, "--last", "--json"]) == 0
+    assert '"status": "ACTION_REQUIRED"' in capsys.readouterr().out
+
     assert cli.main([*argv, "--reset", "--json"]) == 0
     assert '"status": "ACTION_REQUIRED"' in capsys.readouterr().out
+
+
+def test_last_without_a_saved_report_is_an_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "fetch_snapshot", lambda repo, number: pytest.fail("--last must not poll"))
+    assert cli.main(["o/r", "7", "--last", "--state-dir", str(tmp_path)]) == 1
+    assert "no report has been saved for o/r#7" in capsys.readouterr().err
 
 
 def test_main_exits_1_on_gh_error(tmp_path, monkeypatch, capsys):

@@ -18,6 +18,20 @@ def state_path(state_dir: Path, repo: str, number: int) -> Path:
     return state_dir / f"{repo.replace('/', '__')}__{number}.json"
 
 
+def last_report_path(cursor: Path, as_json: bool) -> Path:
+    """Where the most recent report for the PR with this cursor is kept, for --last."""
+    return cursor.with_suffix(".last.json" if as_json else ".last.txt")
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write then rename, so a kill mid-write cannot leave a truncated file behind."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    with os.fdopen(fd, "w") as handle:
+        handle.write(text)
+    os.replace(tmp, path)
+
+
 @dataclass
 class State:
     path: Path | None = None
@@ -48,7 +62,6 @@ class State:
     def save(self) -> None:
         if self.path is None:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": 1,
             "seen": self.seen,
@@ -56,8 +69,4 @@ class State:
             "conflict_head": self.conflict_head,
             "queued": self.queued,
         }
-        # Write then rename, so a kill mid-write cannot leave a truncated cursor behind.
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name, suffix=".tmp")
-        with os.fdopen(fd, "w") as handle:
-            json.dump(payload, handle, indent=2)
-        os.replace(tmp, self.path)
+        write_atomic(self.path, json.dumps(payload, indent=2))

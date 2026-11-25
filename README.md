@@ -60,6 +60,10 @@ A failed check is reported once per attempt, and a merge conflict once per head 
 Pushing a fix or re-running the check makes it eligible to be reported again. Pass
 `--reset` to forget the cursor and report everything afresh.
 
+Each report is also saved beside the cursor. Because the cursor moves on as soon as a
+report is printed, a report that was lost (truncated output, a context reset) would
+otherwise be gone; `pesterchum OWNER/REPO NUMBER --last` prints it again.
+
 The cursor also remembers that the PR was in the merge queue. If it is later removed
 from the queue without merging, the next run reports that, with GitHub's reason, whether
 or not `--through-queue` was passed.
@@ -85,7 +89,8 @@ or not `--through-queue` was passed.
 | `--fail-fast` | Report a failed check as soon as it fails, instead of waiting for the other checks to finish. Checks that fail later are reported by the next run. |
 | `--through-queue` | Do not stop at `QUEUED`: keep watching while the PR is in the merge queue, until it merges or is removed from the queue. |
 | `--once` | Poll a single time and report (`IDLE` if there is nothing), instead of waiting. |
-| `--reset` | Forget what was already reported for this PR. |
+| `--last` | Print the most recent report for this PR again, without polling, and exit. Add `--json` for the JSON form. |
+| `--reset` | Forget what was already reported for this PR, including the saved report. |
 | `--json` | Print the report as JSON. |
 | `--quiet` | No progress lines on stderr. |
 | `--state-dir DIR` | Where to keep the cursor. |
