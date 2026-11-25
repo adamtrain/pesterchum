@@ -30,19 +30,52 @@ MAX_BACKOFF_SECONDS = 900
 DESCRIPTION = """\
 Block until a GitHub pull request needs attention, then print what happened and exit.
 
-Wakes on: a new comment or review, a failed required check (once every required check
-has finished, or at once with --fail-fast), a merge conflict, somebody else pushing to
-the branch, or the PR being merged, closed, or added to the merge queue (with
---through-queue: removed from the queue instead). Otherwise it waits indefinitely, so
-run it in the background.
+Run it in the background after opening or updating a PR: it waits indefinitely. When it
+exits, read the report on stdout, act on it, and run the same command again. A cursor is
+kept per PR, so each run reports only what is new since the last report, including
+anything that arrived while it was not running.
 
-The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
-ACTION_REQUIRED, READY (only with --wake-on-ready), MERGED, QUEUED, CLOSED, or TIMEOUT.
-The exit status is 0 for all of these and 1 for errors.
+It wakes on:
+  - a new comment, review or inline review comment. Comments by the authenticated gh
+    user are taken to be your own and ignored; pass --include-self if a human reviewer
+    shares that login.
+  - a failed required check, once the other required checks have finished
+    (--fail-fast: straight away; --all-checks: checks that are not required as well)
+  - a merge conflict with the base branch
+  - a push to the branch that did not come from the checkout in the current directory
+  - the PR being removed from the merge queue without merging
+  - the PR being merged, closed, or added to the merge queue
+Passing checks and approvals without text do not wake it, unless --wake-on-ready is given.
+"""
 
-A cursor is kept per PR under ~/.cache/pesterchum, so running the same command again
-reports only what is new since the last report, including anything that arrived while
-you were not watching. If a report was lost, --last prints the most recent one again.
+EPILOG = """\
+The first line of stdout is `PESTERCHUM: <STATUS>`, and the rest is the report:
+  ACTION_REQUIRED  Something needs doing. Deal with every item in the report, push, and
+                   run the same command again. The report ends with that command.
+  READY            Only with --wake-on-ready. The PR can be merged, and nothing has
+                   merged it. Run the same command again to keep watching.
+  QUEUED           The PR is in the merge queue. Stop here, or run again with
+                   --through-queue to wait for it to merge or be removed.
+  MERGED, CLOSED   Nothing further to watch. Stop.
+  TIMEOUT          Only with --timeout. Nothing happened; run the same command again.
+  IDLE             Only with --once. There is nothing to report right now.
+
+A report lists each new comment with its author, file and line, link and ids, and each
+failed check with an excerpt of its log (Buildkite through `bk`, GitHub Actions through
+`gh`) or the summary and annotations on the check itself. If a report is lost, for
+example to truncated output, --last prints it again: the cursor has already moved past
+it, so running the command again would not.
+
+Exit status: 0 for every status above, 1 for errors such as an unknown PR or a gh that is
+not signed in, 2 for bad arguments. Progress lines go to stderr.
+
+Examples:
+  pesterchum                                   watch the PR for the current branch
+  pesterchum OWNER/REPO 123 --fail-fast --through-queue
+                                               report the first failed check at once, and
+                                               keep watching through the merge queue
+  pesterchum OWNER/REPO 123 --once             look once, without waiting
+  pesterchum OWNER/REPO 123 --last             print the previous report again
 """
 
 
@@ -58,58 +91,82 @@ def parse_target(target: list[str]) -> tuple[str, int]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pesterchum", description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
+        prog="pesterchum", description=DESCRIPTION, epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "target", nargs="*", metavar="PR",
         help="OWNER/REPO NUMBER, OWNER/REPO#NUMBER, or a PR URL (default: the pull request for the current branch)",
     )
-    parser.add_argument("--interval", type=float, default=60, metavar="SECONDS", help="seconds between polls (default: 60)")
-    parser.add_argument(
-        "--slow-interval", type=float, default=600, metavar="SECONDS",
-        help="seconds between polls once the watch has run for --slow-after (default: 600)",
+    parser.add_argument("--version", action="version", version=f"pesterchum {__version__}")
+
+    wake = parser.add_argument_group("what ends the wait")
+    wake.add_argument(
+        "--fail-fast", action="store_true",
+        help="report a failed check as soon as it fails, instead of waiting for the other checks to finish; "
+        "checks that fail later are reported by the next run",
     )
-    parser.add_argument(
-        "--slow-after", type=float, default=3600, metavar="SECONDS",
-        help="how long to poll at --interval before dropping to --slow-interval (default: 3600)",
+    wake.add_argument("--all-checks", action="store_true", help="watch every check, not only those required to merge")
+    wake.add_argument(
+        "--wake-on-ready", action="store_true",
+        help="also wake, with status READY, when the PR becomes ready to merge: GitHub says it can merge "
+        "and no watched check is failing or running (once per head commit)",
     )
-    parser.add_argument(
-        "--settle", type=float, default=20, metavar="SECONDS",
-        help="after first noticing something, wait this long and poll once more so that "
-        "comments arriving together land in one report (default: 20)",
+    wake.add_argument(
+        "--through-queue", action="store_true",
+        help="do not stop at QUEUED: keep watching while the PR is in the merge queue, until it merges or is removed",
     )
-    parser.add_argument("--timeout", type=float, default=0, metavar="SECONDS", help="give up after this long (default: never)")
-    parser.add_argument("--wake-on-edits", action="store_true", help="also wake when an already-reported comment is edited")
-    parser.add_argument("--include-self", action="store_true", help="also wake on comments by the authenticated gh user")
-    parser.add_argument(
+    wake.add_argument(
+        "--wake-on-edits", action="store_true",
+        help="also wake when an already-reported comment is edited, for bots that rewrite one comment in place",
+    )
+    wake.add_argument("--include-self", action="store_true", help="also wake on comments by the authenticated gh user")
+    wake.add_argument(
         "--ignore-author", action="append", default=[], metavar="LOGIN",
         help="never wake on comments by this login (repeatable; omit any [bot] suffix)",
     )
-    parser.add_argument("--all-checks", action="store_true", help="watch every check, not only those required to merge")
-    parser.add_argument(
-        "--fail-fast", action="store_true",
-        help="report a failed check as soon as it fails, instead of waiting for the other checks to finish",
+
+    timing = parser.add_argument_group("timing")
+    timing.add_argument("--interval", type=float, default=60, metavar="SECONDS", help="seconds between polls (default: 60)")
+    timing.add_argument(
+        "--slow-interval", type=float, default=600, metavar="SECONDS",
+        help="seconds between polls once the watch has run for --slow-after (default: 600)",
     )
-    parser.add_argument(
-        "--through-queue", action="store_true",
-        help="keep watching while the PR is in the merge queue, until it merges or is removed from the queue",
+    timing.add_argument(
+        "--slow-after", type=float, default=3600, metavar="SECONDS",
+        help="how long to poll at --interval before dropping to --slow-interval; "
+        "running the command again starts afresh (default: 3600)",
     )
-    parser.add_argument(
-        "--wake-on-ready", action="store_true",
-        help="also wake, with status READY, when the PR becomes ready to merge",
+    timing.add_argument(
+        "--settle", type=float, default=20, metavar="SECONDS",
+        help="after first noticing something, wait this long and poll once more so that "
+        "comments arriving together land in one report (default: 20; 0 reports immediately)",
     )
-    parser.add_argument("--once", action="store_true", help="poll a single time and report, instead of waiting")
-    parser.add_argument(
+    timing.add_argument(
+        "--timeout", type=float, default=0, metavar="SECONDS",
+        help="give up after this long and print TIMEOUT (default: wait forever)",
+    )
+
+    modes = parser.add_argument_group("instead of waiting")
+    modes.add_argument(
+        "--once", action="store_true",
+        help="poll a single time and report what is new, or IDLE if nothing is",
+    )
+    modes.add_argument(
         "--last", action="store_true",
-        help="print the most recent report for this PR again, without polling, and exit",
+        help="print the most recent report for this PR again, without polling (with --json, its JSON form)",
     )
-    parser.add_argument("--reset", action="store_true", help="forget what was already reported for this PR")
-    parser.add_argument("--json", action="store_true", help="print the report as JSON")
-    parser.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
-    parser.add_argument("--state-dir", metavar="DIR", help="where to keep the per-PR cursor (default: ~/.cache/pesterchum)")
-    parser.add_argument("--log-tokens", type=int, default=3000, metavar="N", help="token budget per Buildkite job log (default: 3000)")
-    parser.add_argument("--log-lines", type=int, default=120, metavar="N", help="lines kept per GitHub Actions job log (default: 120)")
-    parser.add_argument("--version", action="version", version=f"pesterchum {__version__}")
+    modes.add_argument(
+        "--reset", action="store_true",
+        help="forget what was already reported for this PR, then watch as usual; everything is reported afresh",
+    )
+
+    output = parser.add_argument_group("output and state")
+    output.add_argument("--json", action="store_true", help="print the report as JSON instead of text")
+    output.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
+    output.add_argument("--state-dir", metavar="DIR", help="where to keep the per-PR cursor (default: ~/.cache/pesterchum)")
+    output.add_argument("--log-tokens", type=int, default=3000, metavar="N", help="token budget per Buildkite job log (default: 3000)")
+    output.add_argument("--log-lines", type=int, default=120, metavar="N", help="lines kept per GitHub Actions job log (default: 120)")
     return parser
 
 
