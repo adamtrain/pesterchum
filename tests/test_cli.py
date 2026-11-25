@@ -172,6 +172,22 @@ def test_last_without_a_saved_report_is_an_error(tmp_path, monkeypatch, capsys):
     assert "no report has been saved for o/r#7" in capsys.readouterr().err
 
 
+def test_main_takes_the_pr_from_the_current_branch(tmp_path, monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(cli, "current_branch_pr", lambda: "https://github.com/o/r/pull/7")
+    monkeypatch.setattr(cli, "fetch_snapshot", lambda repo, number: seen.append((repo, number)) or snapshot(comments=[issue_comment("c1")]))
+    assert cli.main(["--once", "--quiet", "--state-dir", str(tmp_path)]) == 0
+    assert seen == [("o/r", 7)]
+    assert "run `pesterchum o/r 7 --quiet --state-dir" in capsys.readouterr().out
+
+    def no_pr():
+        raise GhError("could not find a pull request for the current branch", fatal=True)
+
+    monkeypatch.setattr(cli, "current_branch_pr", no_pr)
+    assert cli.main(["--quiet", "--state-dir", str(tmp_path)]) == 1
+    assert "could not find a pull request for the current branch" in capsys.readouterr().err
+
+
 def test_main_exits_1_on_gh_error(tmp_path, monkeypatch, capsys):
     def boom(repo, number):
         raise GhError("pull request o/r#7 not found", fatal=True)

@@ -118,6 +118,21 @@ def _graphql(owner: str, name: str, number: int, cursor: str | None) -> dict:
         raise GhError("could not parse the response from `gh api graphql`") from None
 
 
+def current_branch_pr() -> str:
+    """The URL of the pull request for the branch checked out in the working directory."""
+    cmd = ["gh", "pr", "view", "--json", "url", "--jq", ".url"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS)
+    except FileNotFoundError:
+        raise GhError("the `gh` CLI is not installed or not on PATH", fatal=True) from None
+    except subprocess.TimeoutExpired:
+        raise GhError(f"`gh pr view` timed out after {GH_TIMEOUT_SECONDS}s", fatal=True) from None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        detail = (proc.stderr or proc.stdout).strip() or f"gh exited with status {proc.returncode}"
+        raise GhError(f"could not find a pull request for the current branch ({detail}); name one instead", fatal=True)
+    return proc.stdout.strip()
+
+
 def fetch_snapshot(repo: str, number: int) -> Snapshot:
     owner, name = repo.split("/", 1)
     data = _graphql(owner, name, number, None)

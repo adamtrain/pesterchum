@@ -14,7 +14,7 @@ from pathlib import Path
 from pesterchum import __version__
 from pesterchum.ci import failure_context
 from pesterchum.detect import Events, Options, detect, mark_reported
-from pesterchum.github import GhError, fetch_snapshot
+from pesterchum.github import GhError, current_branch_pr, fetch_snapshot
 from pesterchum.models import Snapshot
 from pesterchum.report import IDLE, TIMEOUT, render_json, render_text, status_of
 from pesterchum.state import State, default_state_dir, last_report_path, state_path, write_atomic
@@ -58,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pesterchum", description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("target", nargs="+", metavar="PR", help="OWNER/REPO NUMBER, OWNER/REPO#NUMBER, or a PR URL")
+    parser.add_argument(
+        "target", nargs="*", metavar="PR",
+        help="OWNER/REPO NUMBER, OWNER/REPO#NUMBER, or a PR URL (default: the pull request for the current branch)",
+    )
     parser.add_argument("--interval", type=float, default=60, metavar="SECONDS", help="seconds between polls (default: 60)")
     parser.add_argument(
         "--settle", type=float, default=20, metavar="SECONDS",
@@ -201,9 +204,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        repo, number = parse_target(args.target)
+        repo, number = parse_target(args.target or [current_branch_pr()])
     except ValueError as error:
         parser.error(str(error))
+    except GhError as error:
+        print(f"pesterchum: error: {error}", file=sys.stderr)
+        return 1
 
     def log(message: str) -> None:
         if not args.quiet:
@@ -248,7 +254,10 @@ def main(argv: list[str] | None = None) -> int:
         log(f"fetching failure details for {check.label}")
         contexts[check.failure_key(snapshot.head_oid)] = failure_context(check, repo, args.log_tokens, args.log_lines)
 
-    rerun = "pesterchum " + shlex.join(arg for arg in argv if arg not in ("--reset", "--once"))
+    # A PR taken from the current branch is spelled out, so the command still names the
+    # same PR after the branch or the directory changes.
+    named = [] if args.target else [repo, str(number)]
+    rerun = "pesterchum " + shlex.join(named + [arg for arg in argv if arg not in ("--reset", "--once")])
     as_text = render_text(snapshot, events, status, contexts, rerun)
     as_json = render_json(snapshot, events, status, contexts)
     sys.stdout.write(as_json if args.json else as_text)

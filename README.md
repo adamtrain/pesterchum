@@ -42,7 +42,9 @@ uv tool install /path/to/pesterchum
 pesterchum OWNER/REPO 1234
 ```
 
-`OWNER/REPO#1234` and a full PR URL work too. The first line of output is
+`OWNER/REPO#1234` and a full PR URL work too. With no PR named, it watches the pull
+request for the branch checked out in the current directory, as `gh pr view` finds it.
+The first line of output is
 `PESTERCHUM: <STATUS>`; the rest explains what happened: each new comment with its
 author, location and link, and each failed check with the failing jobs and their logs
 (from `bk` for Buildkite, `gh` for GitHub Actions). The exit status is 0 for every
