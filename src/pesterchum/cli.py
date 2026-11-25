@@ -30,7 +30,7 @@ DESCRIPTION = """\
 Block until a GitHub pull request needs attention, then print what happened and exit.
 
 Wakes on: a new comment or review, a failed required check (once every required check
-has finished), a merge conflict, or the PR being merged, closed, or added to the merge
+has finished, or at once with --fail-fast), a merge conflict, or the PR being merged, closed, or added to the merge
 queue. Otherwise it waits indefinitely, so run it in the background.
 
 The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
@@ -72,6 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="never wake on comments by this login (repeatable; omit any [bot] suffix)",
     )
     parser.add_argument("--all-checks", action="store_true", help="watch every check, not only those required to merge")
+    parser.add_argument(
+        "--fail-fast", action="store_true",
+        help="report a failed check as soon as it fails, instead of waiting for the other checks to finish",
+    )
     parser.add_argument("--once", action="store_true", help="poll a single time and report, instead of waiting")
     parser.add_argument("--reset", action="store_true", help="forget what was already reported for this PR")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -187,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         ignore_authors=frozenset(login.lower().removesuffix("[bot]").strip() for login in args.ignore_author),
         wake_on_edits=args.wake_on_edits,
         all_checks=args.all_checks,
+        fail_fast=args.fail_fast,
     )
 
     log(f"watching {repo}#{number} every {args.interval:.0f}s (cursor: {path})")

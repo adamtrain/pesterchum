@@ -76,7 +76,7 @@ def render_text(snapshot: Snapshot, events: Events, status: str, contexts: dict[
         out.append("## Check status")
         out.append(f"{events.passed} passed, {events.failed} failed, {events.pending} still running.")
         if events.failed and not events.failed_checks:
-            reason = "other checks are still running" if events.pending else "already reported for this commit"
+            reason = "other checks are still running" if events.failures_held else "already reported for this commit"
             out.append(f"Failures are not detailed above because {reason}.")
         out.append("")
 

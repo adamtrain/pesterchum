@@ -89,6 +89,19 @@ def test_failures_wait_for_running_checks_to_finish():
     assert sorted(c.name for c in run(settled).failed_checks) == ["bk", "unit"]
 
 
+def test_fail_fast_reports_a_failure_while_other_checks_run():
+    state = State()
+    failing = check_run("unit", conclusion="FAILURE", job_id=1)
+    running = snapshot(checks=[failing, status_context("bk", state="PENDING")])
+    events = run(running, state, fail_fast=True)
+    assert [c.name for c in events.failed_checks] == ["unit"] and events.pending == 1
+    mark_reported(running, events, state)
+    assert not run(running, state, fail_fast=True).wake
+
+    settled = snapshot(checks=[failing, status_context("bk", state="FAILURE")])
+    assert [c.name for c in run(settled, state, fail_fast=True).failed_checks] == ["bk"]
+
+
 def test_only_required_checks_are_watched_by_default():
     snap = snapshot(checks=[check_run("optional", conclusion="FAILURE", required=False)])
     assert not run(snap).wake

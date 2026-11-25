@@ -18,6 +18,7 @@ class Options:
     ignore_authors: frozenset[str] = frozenset()
     wake_on_edits: bool = False
     all_checks: bool = False
+    fail_fast: bool = False
 
 
 @dataclass
@@ -31,6 +32,8 @@ class Events:
     passed: int = 0
     failed: int = 0
     pending: int = 0
+    # Failures exist but are being kept back until the checks still running have finished.
+    failures_held: bool = False
 
     @property
     def needs_action(self) -> bool:
@@ -77,8 +80,10 @@ def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
     events.passed = sum(check.state == PASS for check in watched)
     events.failed = sum(check.state == FAIL for check in watched)
     events.pending = sum(check.state == PENDING for check in watched)
-    # Failures are held back until nothing is still running, so one report carries them all.
-    if events.pending == 0:
+    # Failures are held back until nothing is still running, so one report carries them
+    # all, unless the caller would rather hear about the first one straight away.
+    events.failures_held = events.pending > 0 and not options.fail_fast
+    if not events.failures_held:
         events.failed_checks = [
             check for check in watched
             if check.state == FAIL and check.failure_key(snapshot.head_oid) not in state.reported_failures
