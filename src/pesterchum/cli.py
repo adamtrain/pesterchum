@@ -32,13 +32,13 @@ Block until a GitHub pull request needs attention, then print what happened and 
 
 Wakes on: a new comment or review, a failed required check (once every required check
 has finished, or at once with --fail-fast), a merge conflict, somebody else pushing to
-the branch, or the PR being merged, closed, or added to the merge
-queue (with --through-queue: removed from the queue instead). Otherwise it waits indefinitely, so run it in the background.
+the branch, or the PR being merged, closed, or added to the merge queue (with
+--through-queue: removed from the queue instead). Otherwise it waits indefinitely, so
+run it in the background.
 
 The first line of output is `PESTERCHUM: <STATUS>` where STATUS is one of
 ACTION_REQUIRED, READY (only with --wake-on-ready), MERGED, QUEUED, CLOSED, or TIMEOUT.
-The exit status is 0 for all of
-these and 1 for errors.
+The exit status is 0 for all of these and 1 for errors.
 
 A cursor is kept per PR under ~/.cache/pesterchum, so running the same command again
 reports only what is new since the last report, including anything that arrived while
