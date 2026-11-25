@@ -120,6 +120,20 @@ def test_commit_is_local(tmp_path):
     assert commit_is_local("o/other", oid, cwd=str(tmp_path)) is None
 
 
+def test_watch_polls_less_often_after_the_first_hour():
+    script = Script(snapshot())
+    assert script.watch(timeout=3 * 3600)[2] == TIMEOUT
+    assert script.sleeps == [60] * 60 + [600] * 12
+
+    # A restart begins at the fast rate again, and an interval already slower is left alone.
+    script = Script(snapshot())
+    script.watch(interval=900, timeout=2 * 3600)
+    assert set(script.sleeps) == {900}
+    script = Script(snapshot())
+    script.watch(slow_after=120, slow_interval=300, timeout=600)
+    assert script.sleeps == [60, 60, 300, 300]
+
+
 def test_watch_times_out_and_once_reports_idle():
     script = Script(snapshot())
     assert script.watch(timeout=150)[2] == TIMEOUT

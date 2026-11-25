@@ -95,6 +95,7 @@ pushes never wake it, and the head as first seen is taken as the starting point.
 | Flag | Effect |
 | --- | --- |
 | `--interval SECONDS` | Seconds between polls. Default 60. |
+| `--slow-interval SECONDS`, `--slow-after SECONDS` | Once a watch has run for `--slow-after` (default 3600, an hour), poll every `--slow-interval` (default 600) instead. Running the command again starts at `--interval` again. |
 | `--settle SECONDS` | After first noticing something, wait this long and poll once more, so comments that arrive together land in one report. Default 20; 0 reports immediately. |
 | `--timeout SECONDS` | Give up after this long and print `TIMEOUT`. Default: never. |
 | `--wake-on-edits` | Also wake when an already-reported comment is edited, for bots that rewrite one comment in place. |
@@ -117,7 +118,8 @@ pushes never wake it, and the head as first seen is taken as the starting point.
 Each poll is one `gh api graphql` call that returns the PR state, merge-queue
 membership, mergeability, comments, reviews, review threads, and the checks on the head
 commit with whether each is required. That costs one point of the 5,000-per-hour
-GraphQL budget, so a watcher polling every minute uses about 60 an hour. If the budget
+GraphQL budget, so a watcher uses about 60 in its first hour, while it polls every
+minute, and about 6 an hour after that, when it polls every ten minutes. If the budget
 is nearly spent, polling pauses until it resets. Transient `gh` failures are retried
 with backoff.
 

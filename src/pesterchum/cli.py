@@ -66,6 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--interval", type=float, default=60, metavar="SECONDS", help="seconds between polls (default: 60)")
     parser.add_argument(
+        "--slow-interval", type=float, default=600, metavar="SECONDS",
+        help="seconds between polls once the watch has run for --slow-after (default: 600)",
+    )
+    parser.add_argument(
+        "--slow-after", type=float, default=3600, metavar="SECONDS",
+        help="how long to poll at --interval before dropping to --slow-interval (default: 3600)",
+    )
+    parser.add_argument(
         "--settle", type=float, default=20, metavar="SECONDS",
         help="after first noticing something, wait this long and poll once more so that "
         "comments arriving together land in one report (default: 20)",
@@ -112,6 +120,8 @@ def watch(
     *,
     interval: float,
     settle: float,
+    slow_interval: float = 600,
+    slow_after: float = 3600,
     timeout: float = 0,
     once: bool = False,
     sleep: Callable[[float], None] = time.sleep,
@@ -119,13 +129,20 @@ def watch(
     log: Callable[[str], None] = lambda message: None,
 ) -> tuple[Snapshot, Events, str]:
     """Poll until there is something to report. Returns the snapshot, events and status."""
-    deadline = clock() + timeout if timeout > 0 else None
+    started = clock()
+    deadline = started + timeout if timeout > 0 else None
+    fast = interval
     latest: tuple[Snapshot, Events] | None = None
     consecutive_errors = 0
     confirming = False
     progress = None
 
     while True:
+        # Most of what happens to a PR happens soon after a push, so a watch that has
+        # been quiet for a long time polls less often. Running it again starts afresh.
+        if interval == fast and slow_interval > fast and clock() - started >= slow_after:
+            interval = slow_interval
+            log(f"watching for {slow_after:.0f}s; polling every {interval:.0f}s from now on")
         try:
             snapshot = fetch()
         except GhError as error:
@@ -208,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.interval <= 0 or args.slow_interval <= 0:
+        parser.error("--interval and --slow-interval must be greater than zero")
     try:
         repo, number = parse_target(args.target or [current_branch_pr()])
     except ValueError as error:
@@ -247,7 +266,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         snapshot, events, status = watch(
             lambda: fetch_snapshot(repo, number), state, options,
-            interval=args.interval, settle=args.settle, timeout=args.timeout, once=args.once, log=log,
+            interval=args.interval, settle=args.settle, slow_interval=args.slow_interval, slow_after=args.slow_after,
+            timeout=args.timeout, once=args.once, log=log,
         )
     except GhError as error:
         print(f"pesterchum: error: {error}", file=sys.stderr)
