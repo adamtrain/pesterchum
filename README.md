@@ -49,8 +49,10 @@ The first line of output is
 `PESTERCHUM: <STATUS>`; the rest explains what happened: each new comment with its
 author, location, link and ids (and, for inline comments, the review thread id together
 with the `gh` commands that reply to a thread or resolve it), and each failed check with
-the failing jobs and their logs (from `bk` for Buildkite, `gh` for GitHub Actions). The
-exit status is 0 for every status above and 1 for errors such as an unknown PR.
+the failing jobs and their logs (from `bk` for Buildkite, `gh` for GitHub Actions). A
+failed check run from any other app is explained with the summary, text and annotations
+the app attached to it, and Actions failures list their error annotations above the log.
+The exit status is 0 for every status above and 1 for errors such as an unknown PR.
 
 It waits indefinitely, so an agent should run it in the background and act when it
 exits. For Claude Code that means `run_in_background: true` on the Bash call; the

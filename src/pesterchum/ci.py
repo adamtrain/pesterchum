@@ -1,4 +1,4 @@
-"""Gather an explanation for a failed check from Buildkite (`bk`) or GitHub Actions (`gh`)."""
+"""Gather an explanation for a failed check: Buildkite (`bk`), GitHub Actions, or the check run itself (`gh`)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,12 @@ ACTIONS_LOG_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z ")
 COMMAND_TIMEOUT_SECONDS = 120
 MAX_FAILED_JOBS = 5
 MAX_ANNOTATION_CHARS = 3000
+MAX_OUTPUT_CHARS = 3000
+MAX_CHECK_ANNOTATIONS = 20
+MAX_MESSAGE_CHARS = 400
+ANNOTATION_LEVELS = {"failure": 0, "warning": 1, "notice": 2}
+# Actions attaches this to every failed job; the log excerpt already says as much.
+ACTIONS_NOISE = re.compile(r"^Process completed with exit code \d+\.?$")
 
 
 def failure_context(check: Check, repo: str, log_tokens: int = 3000, log_lines: int = 120) -> str:
@@ -24,6 +30,11 @@ def failure_context(check: Check, repo: str, log_tokens: int = 3000, log_lines: 
             return _buildkite(match.group(1), match.group(2), match.group(3), log_tokens)
         if check.kind == "check_run" and check.app == "github-actions" and check.job_id:
             return _actions(repo, check.job_id, log_lines)
+        if check.kind == "check_run" and check.job_id:
+            # Any other app: all there is to go on is what it wrote on the check run.
+            output = _check_run_output(repo, check.job_id)
+            if output:
+                return output
     except _CommandError as error:
         return f"_Could not fetch failure details: {error}_"
     return "_No log source is known for this check; open its link for details._"
@@ -151,4 +162,61 @@ def _actions(repo: str, job_id: int, log_lines: int) -> str:
     omitted = len(lines) - log_lines
     tail = lines[-log_lines:]
     note = f"_(last {log_lines} of {len(lines)} failed-step log lines)_\n\n" if omitted > 0 else ""
-    return f"{note}```\n" + "\n".join(tail) + "\n```"
+    log = f"{note}```\n" + "\n".join(tail) + "\n```"
+    # Errors that a step raised with `::error file=...` point at the file and line.
+    try:
+        annotations = _check_annotations(repo, job_id, failures_only=True)
+    except _CommandError:
+        annotations = ""
+    return f"{annotations}\n\n{log}" if annotations else log
+
+
+def _check_run_output(repo: str, check_run_id: int) -> str:
+    """What the app behind a check run wrote about it: its summary, its text and its annotations."""
+    try:
+        output = json.loads(_run(["gh", "api", f"repos/{repo}/check-runs/{check_run_id}"])).get("output") or {}
+    except json.JSONDecodeError:
+        raise _CommandError("`gh api` returned no usable check run") from None
+    parts = []
+    for key in ("summary", "text"):
+        body = (output.get(key) or "").strip()
+        if body:
+            if len(body) > MAX_OUTPUT_CHARS:
+                body = body[:MAX_OUTPUT_CHARS] + "\n…(truncated)"
+            # Quoted, so that the app's own headings cannot be mistaken for the report's.
+            parts.append("\n".join(f"> {line}".rstrip() for line in body.splitlines()))
+    if output.get("annotations_count"):
+        try:
+            parts.append(_check_annotations(repo, check_run_id))
+        except _CommandError as error:
+            parts.append(f"_Could not fetch this check's annotations: {error}_")
+    return "\n\n".join(part for part in parts if part)
+
+
+def _check_annotations(repo: str, check_run_id: int, failures_only: bool = False) -> str:
+    raw = _run(["gh", "api", f"repos/{repo}/check-runs/{check_run_id}/annotations?per_page=100"])
+    try:
+        annotations = [a for a in json.loads(raw) if isinstance(a, dict)]
+    except (json.JSONDecodeError, TypeError):
+        raise _CommandError("`gh api` returned no usable annotations") from None
+    if failures_only:
+        annotations = [
+            a for a in annotations
+            if a.get("annotation_level") == "failure" and not ACTIONS_NOISE.match((a.get("message") or "").strip())
+        ]
+    if not annotations:
+        return ""
+    # The sort is stable, so within a level the annotations stay in the order GitHub gave.
+    annotations.sort(key=lambda a: ANNOTATION_LEVELS.get(a.get("annotation_level"), len(ANNOTATION_LEVELS)))
+    shown = annotations[:MAX_CHECK_ANNOTATIONS]
+    count = f"{len(shown)} of {len(annotations)}" if len(annotations) > len(shown) else str(len(shown))
+    lines = [f"#### Annotations ({count})"]
+    for annotation in shown:
+        where = annotation.get("path") or "(no file)"
+        if annotation.get("start_line"):
+            where += f":{annotation['start_line']}"
+        message = " ".join(" ".join(filter(None, [annotation.get("title"), annotation.get("message")])).split())
+        if len(message) > MAX_MESSAGE_CHARS:
+            message = message[:MAX_MESSAGE_CHARS] + "…"
+        lines.append(f"- `{where}` {annotation.get('annotation_level') or 'note'}: {message or '(no message)'}")
+    return "\n".join(lines)

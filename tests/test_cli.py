@@ -261,6 +261,48 @@ def test_render_inline_comment_shows_hunk_or_reply_context():
     assert "Replying to inline comments" not in text
 
 
+def test_failure_context_from_the_check_run_itself(monkeypatch):
+    import json
+
+    from pesterchum import ci
+    from pesterchum.models import FAIL, Check
+
+    annotations = [
+        {"path": "src/a.py", "start_line": 3, "annotation_level": "warning", "title": None, "message": "unused import"},
+        {"path": "src/b.py", "start_line": 9, "annotation_level": "failure", "title": "E501", "message": "line too\n  long"},
+        {"path": ".github", "start_line": 1, "annotation_level": "failure", "message": "Process completed with exit code 1."},
+    ]
+    replies = {
+        "repos/o/r/check-runs/5": {"output": {"summary": "## 2 problems\nsee below", "text": None, "annotations_count": 3}},
+        "repos/o/r/check-runs/5/annotations?per_page=100": annotations,
+        "repos/o/r/check-runs/6": {"output": {"summary": None, "text": "", "annotations_count": 0}},
+        "repos/o/r/check-runs/7/annotations?per_page=100": annotations,
+    }
+
+    def fake_run(cmd, allow_failure=False):
+        if cmd[:2] == ["gh", "api"]:
+            return json.dumps(replies[cmd[2]])
+        assert cmd[:3] == ["gh", "run", "view"]
+        return "job\tstep\t2026-01-01T00:00:00.0Z boom\n"
+
+    monkeypatch.setattr(ci, "_run", fake_run)
+
+    def check(job_id, app="some-linter"):
+        return Check(name="lint", kind="check_run", state=FAIL, raw_state="FAILURE", required=True, app=app, job_id=job_id)
+
+    text = ci.failure_context(check(5), "o/r")
+    assert text.startswith("> ## 2 problems\n> see below\n\n#### Annotations (3)\n")
+    # Failures come first, and a title and a message spread over lines are joined up.
+    assert text.index("- `src/b.py:9` failure: E501 line too long") < text.index("- `src/a.py:3` warning: unused import")
+
+    assert "No log source is known" in ci.failure_context(check(6), "o/r")
+    assert "No log source is known" in ci.failure_context(Check(name="s", kind="status", state=FAIL, raw_state="ERROR", required=True), "o/r")
+
+    # GitHub Actions: only real errors are worth showing above the log excerpt.
+    text = ci.failure_context(check(7, app="github-actions"), "o/r")
+    assert text.startswith("#### Annotations (1)\n- `src/b.py:9` failure: E501 line too long\n\n```\nboom\n```")
+
+
 def test_buildkite_url_and_log_trimming():
     match = BUILDKITE_URL.search("https://buildkite.com/Org/some-pipeline/builds/42#0190-abc")
     assert match.groups() == ("Org", "some-pipeline", "42")
