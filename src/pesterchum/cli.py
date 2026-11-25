@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pesterchum import __version__
 from pesterchum.ci import failure_context
-from pesterchum.detect import Events, Options, detect, mark_reported
+from pesterchum.detect import Events, Options, detect, mark_reported, unmatched_names
 from pesterchum.github import GhError, current_branch_pr, fetch_snapshot
 from pesterchum.local import commit_is_local
 from pesterchum.models import Snapshot
@@ -40,7 +40,8 @@ It wakes on:
     user are taken to be your own and ignored; pass --include-self if a human reviewer
     shares that login.
   - a failed required check, once the other required checks have finished
-    (--fail-fast: straight away; --all-checks: checks that are not required as well)
+    (--fail-fast: straight away; --watch-check NAME: that check as well, though GitHub
+    does not mark it required; --all-checks: every check)
   - a merge conflict with the base branch
   - a push to the branch that did not come from the checkout in the current directory
   - the PR being removed from the merge queue without merging
@@ -74,6 +75,8 @@ Examples:
   pesterchum OWNER/REPO 123 --fail-fast --through-queue
                                                report the first failed check at once, and
                                                keep watching through the merge queue
+  pesterchum OWNER/REPO 123 --watch-check branch-freshness
+                                               also watch a check that is not marked required
   pesterchum OWNER/REPO 123 --once             look once, without waiting
   pesterchum OWNER/REPO 123 --last             print the previous report again
 """
@@ -105,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-fast", action="store_true",
         help="report a failed check as soon as it fails, instead of waiting for the other checks to finish; "
         "checks that fail later are reported by the next run",
+    )
+    wake.add_argument(
+        "--watch-check", action="append", default=[], metavar="NAME",
+        help="also watch the check with this name, for one that blocks merging without GitHub marking it "
+        "required (repeatable; the whole name as the report or the PR page shows it, in any letter case)",
     )
     wake.add_argument("--all-checks", action="store_true", help="watch every check, not only those required to merge")
     wake.add_argument(
@@ -217,6 +225,10 @@ def watch(
 
         consecutive_errors = 0
         events = detect(snapshot, state, options)
+        if latest is None:
+            for name in unmatched_names(snapshot, options):
+                # Most likely a misspelling, though a check that has yet to start looks the same.
+                log(f"--watch-check: no check named {name!r} on the head commit yet; names are matched whole")
         if not events.head_moved_from:
             # Either the first look at the PR or a commit of our own: the new baseline.
             state.head = snapshot.head_oid
@@ -313,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         ignore_authors=frozenset(login.lower().removesuffix("[bot]").strip() for login in args.ignore_author),
         wake_on_edits=args.wake_on_edits,
         all_checks=args.all_checks,
+        watch_checks=frozenset(name.strip().lower() for name in args.watch_check if name.strip()),
         fail_fast=args.fail_fast,
         through_queue=args.through_queue,
         wake_on_ready=args.wake_on_ready,

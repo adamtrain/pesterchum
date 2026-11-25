@@ -48,6 +48,7 @@ class Check:
     app: str | None = None
     job_id: int | None = None  # check run database id (the Actions job id)
     timestamp: str = ""
+    watched_by_name: bool = False  # named with --watch-check
 
     @property
     def label(self) -> str:

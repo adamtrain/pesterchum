@@ -40,6 +40,7 @@ status means and what to do next.
 | --- | --- |
 | A new PR comment, review, or inline review comment | `ACTION_REQUIRED` |
 | A required check failed, and no required check is still running (with `--fail-fast`: as soon as it fails) | `ACTION_REQUIRED` |
+| A check named with `--watch-check` failed, on the same terms | `ACTION_REQUIRED` |
 | The branch conflicts with its base | `ACTION_REQUIRED` |
 | Somebody else pushed to the branch | `ACTION_REQUIRED` |
 | The PR left the merge queue without merging | `ACTION_REQUIRED` |
@@ -48,8 +49,9 @@ status means and what to do next.
 | The PR merged | `MERGED` |
 | The PR was closed without merging | `CLOSED` |
 
-Nothing else ends the wait. Passing checks, approvals with no text, checks that are not
-required, and comments by the authenticated `gh` user are ignored. That last rule
+Nothing else ends the wait. Passing checks, approvals with no text, checks that are
+neither required nor named with `--watch-check`, and comments by the authenticated `gh`
+user are ignored. That last rule
 assumes the agent is the only one using that login: if a person reviews under the same
 account, pass `--include-self`.
 
@@ -170,6 +172,29 @@ report carries every failure. With `--fail-fast` a failed check is reported as s
 it fails, which matters when the pipeline is long and the first failure is enough to
 act on. Checks that fail afterwards are reported by the next run.
 
+### Checks that block without being required
+
+Some repositories have a check that stops a merge although GitHub does not mark it as
+required: a status that another gate reads, say, or one that tells the author to rebase.
+Nothing in GitHub's API says which checks those are, so they have to be named:
+
+```bash
+pesterchum OWNER/REPO 1234 --watch-check branch-freshness
+```
+
+A named check is treated exactly like a required one: its failure is reported, a run in
+progress holds back the other failures (unless `--fail-fast`), and a failure holds back
+`READY`. The report marks it as watched by name, so that "not required" is not read as
+"safe to ignore". The name is matched whole, in any letter case, against the check's
+name or its `Workflow / name` form. If no check on the head commit has that name when
+the watch starts, a progress line says so, since a misspelt name would otherwise watch
+nothing.
+
+A commit status can fail long after the push, for example when the branch falls too far
+behind its base. That is reported when it happens, and again each time the status is
+posted afresh. `--all-checks` is the blunt alternative: it watches every check, including
+ones that fail routinely and block nothing.
+
 ### Pushes by somebody else
 
 A reviewer committing a suggestion, or anyone pressing "Update branch", moves the head
@@ -216,6 +241,7 @@ What ends the wait:
 | Flag | Effect |
 | --- | --- |
 | `--fail-fast` | Report a failed check as soon as it fails, instead of waiting for the other checks to finish. |
+| `--watch-check NAME` | Also watch the check with this name, for one that blocks merging without GitHub marking it required. Repeatable. |
 | `--all-checks` | Watch every check, not only those required to merge. |
 | `--wake-on-ready` | Also wake, with status `READY`, when the PR becomes ready to merge. |
 | `--through-queue` | Do not stop at `QUEUED`: keep watching until the PR merges or is removed from the queue. |
@@ -264,8 +290,8 @@ Limits worth knowing:
 
 - Only the most recent 100 comments, 100 reviews and 100 review threads are examined
   per poll.
-- A required check that has not reported any status yet is invisible, so it does not
-  hold back a failure report. `READY` is not affected, because it rests on GitHub's own
+- A check that has not reported any status yet is invisible, so it does not hold back a
+  failure report. `READY` is not affected, because it rests on GitHub's own
   verdict.
 - A PR URL must be on github.com.
 

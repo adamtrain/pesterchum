@@ -1,5 +1,5 @@
 import pytest
-from helpers import HEAD, check_run, issue_comment, snapshot
+from helpers import HEAD, check_run, issue_comment, snapshot, status_context
 
 from pesterchum import cli
 from pesterchum.ci import BUILDKITE_URL, trim_buildkite_log
@@ -210,6 +210,28 @@ def test_main_reports_then_stays_quiet_on_rerun(tmp_path, monkeypatch, capsys):
     assert '"status": "ACTION_REQUIRED"' in capsys.readouterr().out
 
 
+def test_main_watches_a_named_check_and_says_why_it_matters(tmp_path, monkeypatch, capsys):
+    snap = snapshot(checks=[
+        status_context("branch-freshness", state="FAILURE", required=False),
+        check_run("AI Review Nudge", conclusion="FAILURE", required=False),
+    ])
+    monkeypatch.setattr(cli, "fetch_snapshot", lambda repo, number: snap)
+    monkeypatch.setattr(cli, "failure_context", lambda check, repo, tokens, lines: "")
+    argv = ["o/r", "7", "--once", "--state-dir", str(tmp_path)]
+
+    assert cli.main(argv) == 0
+    assert capsys.readouterr().out.startswith("PESTERCHUM: IDLE\n")
+
+    assert cli.main(argv + ["--watch-check", "Branch-Freshness", "--watch-check", "typo"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("PESTERCHUM: ACTION_REQUIRED\n")
+    assert "### branch-freshness — FAILURE (not marked required, but watched with --watch-check" in captured.out
+    assert "branch-freshness failure" in captured.out and "AI Review Nudge" not in captured.out
+    assert "--watch-check Branch-Freshness --watch-check typo` again" in captured.out
+    assert "no check named 'typo' on the head commit yet" in captured.err
+    assert "no check named 'branch-freshness'" not in captured.err
+
+
 def test_last_without_a_saved_report_is_an_error(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "fetch_snapshot", lambda repo, number: pytest.fail("--last must not poll"))
     assert cli.main(["o/r", "7", "--last", "--state-dir", str(tmp_path)]) == 1
@@ -297,6 +319,8 @@ def test_failure_context_from_the_check_run_itself(monkeypatch):
 
     assert "No log source is known" in ci.failure_context(check(6), "o/r")
     assert "No log source is known" in ci.failure_context(Check(name="s", kind="status", state=FAIL, raw_state="ERROR", required=True), "o/r")
+    described = Check(name="s", kind="status", state=FAIL, raw_state="FAILURE", required=False, description="Branch is 6d behind main")
+    assert ci.failure_context(described, "o/r") == ""
 
     # GitHub Actions: only real errors are worth showing above the log excerpt.
     text = ci.failure_context(check(7, app="github-actions"), "o/r")

@@ -23,6 +23,8 @@ class Options:
     ignore_authors: frozenset[str] = frozenset()
     wake_on_edits: bool = False
     all_checks: bool = False
+    # Lower-cased names of checks to watch whether or not they are required.
+    watch_checks: frozenset[str] = frozenset()
     fail_fast: bool = False
     through_queue: bool = False
     wake_on_ready: bool = False
@@ -61,7 +63,15 @@ class Events:
 
 
 def watched_checks(snapshot: Snapshot, options: Options) -> list[Check]:
-    return [check for check in snapshot.checks if check.required or options.all_checks]
+    for check in snapshot.checks:
+        check.watched_by_name = bool({check.name.lower(), check.label.lower()} & options.watch_checks)
+    return [check for check in snapshot.checks if check.required or check.watched_by_name or options.all_checks]
+
+
+def unmatched_names(snapshot: Snapshot, options: Options) -> list[str]:
+    """The --watch-check names that no check on the head commit answers to."""
+    present = {name for check in snapshot.checks for name in (check.name.lower(), check.label.lower())}
+    return sorted(options.watch_checks - present)
 
 
 def _ignored(comment: Comment, snapshot: Snapshot, options: Options) -> bool:
@@ -121,7 +131,7 @@ def detect(snapshot: Snapshot, state: State, options: Options) -> Events:
         ]
 
     # GitHub decides whether reviews and branch rules are satisfied; the watched checks are
-    # looked at as well, so that --all-checks also holds readiness back.
+    # looked at as well, so that --all-checks and --watch-check also hold readiness back.
     events.ready = (
         options.wake_on_ready
         and events.terminal is None

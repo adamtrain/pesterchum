@@ -37,6 +37,9 @@ def failure_context(check: Check, repo: str, log_tokens: int = 3000, log_lines: 
                 return output
     except _CommandError as error:
         return f"_Could not fetch failure details: {error}_"
+    if check.kind == "status" and check.description:
+        # A plain commit status: its description, printed with the check, is all there is.
+        return ""
     return "_No log source is known for this check; open its link for details._"
 
 

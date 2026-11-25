@@ -108,6 +108,43 @@ def test_only_required_checks_are_watched_by_default():
     assert [c.name for c in run(snap, all_checks=True).failed_checks] == ["optional"]
 
 
+def test_a_named_check_is_watched_without_being_required():
+    stale = snapshot(checks=[
+        status_context("branch-freshness", state="FAILURE", required=False),
+        check_run("AI Review Nudge", conclusion="FAILURE", required=False),
+        check_run("freshness", conclusion="FAILURE", required=False, workflow="Nightly"),
+    ])
+    assert not run(stale).wake
+    # The whole name, in any case; a workflow's check also answers to "workflow / name".
+    assert not run(stale, watch_checks=frozenset({"fresh"})).wake
+    events = run(stale, watch_checks=frozenset({"branch-freshness", "nightly / freshness"}))
+    assert [(c.name, c.watched_by_name) for c in events.failed_checks] == [("branch-freshness", True), ("freshness", True)]
+    assert events.failed == 2
+
+    # It holds back the other failures while it runs, and readiness while it fails.
+    running = snapshot(draft=False, merge_state="CLEAN", checks=[
+        check_run("unit", conclusion="FAILURE"), status_context("branch-freshness", state="PENDING", required=False),
+    ])
+    assert not run(running, watch_checks=frozenset({"branch-freshness"})).wake
+    assert run(running).failed_checks
+    failed = snapshot(draft=False, merge_state="CLEAN", checks=[status_context("branch-freshness", state="FAILURE", required=False)])
+    assert run(failed, wake_on_ready=True).ready
+    assert not run(failed, wake_on_ready=True, watch_checks=frozenset({"branch-freshness"})).ready
+
+
+def test_a_status_that_fails_later_on_the_same_commit_is_reported():
+    state = State()
+    watching = {"watch_checks": frozenset({"branch-freshness"})}
+    fresh = snapshot(checks=[status_context("branch-freshness", required=False)])
+    assert not run(fresh, state, **watching).wake
+
+    stale = snapshot(checks=[status_context("branch-freshness", state="FAILURE", required=False, created="2026-01-08T00:00:00Z")])
+    events = run(stale, state, **watching)
+    assert [c.name for c in events.failed_checks] == ["branch-freshness"]
+    mark_reported(stale, events, state)
+    assert not run(stale, state, **watching).wake
+
+
 def test_failure_reported_once_per_attempt():
     state = State()
     snap = snapshot(checks=[check_run("unit", conclusion="FAILURE", job_id=1)])

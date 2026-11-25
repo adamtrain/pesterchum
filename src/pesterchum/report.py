@@ -160,7 +160,13 @@ def _count(n: int, noun: str) -> str:
 
 
 def _render_check(check: Check, context: str) -> list[str]:
-    required = "required" if check.required else "not required"
+    if check.required:
+        required = "required"
+    elif check.watched_by_name:
+        # Said outright, so that "not required" is not read as "safe to ignore".
+        required = "not marked required, but watched with --watch-check: treat it as blocking"
+    else:
+        required = "not required"
     out = [f"### {check.label} — {check.raw_state} ({required})"]
     if check.url:
         out.append(check.url)
